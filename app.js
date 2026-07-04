@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260704-encoder-v1-full";
+const DATA_VERSION = "20260704-rating-svg";
 const RATING_BEST_COUNT = 20;
 const CHART_RENDER_LIMIT = 800;
 
@@ -60,7 +60,7 @@ const els = {
   ratingValue: document.getElementById("ratingValue"),
   recordCount: document.getElementById("recordCount"),
   matchedCount: document.getElementById("matchedCount"),
-  tableBody: document.getElementById("ratingTableBody"),
+  ratingSvgWrap: document.getElementById("ratingSvgWrap"),
   ratingDetail: document.getElementById("ratingDetail"),
   canvas: document.getElementById("ratingCanvas"),
   imageStatus: document.getElementById("imageStatus"),
@@ -126,6 +126,7 @@ function scoreBonus(score) {
   const anchors = [
     [0.7, -2.0],
     [0.75, -1.0],
+    [0.8, 0.0],
     [0.9, 0.5],
     [0.95, 1.0],
     [1.0, 1.5],
@@ -179,6 +180,27 @@ function formatBonus(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
   return `${number >= 0 ? "+" : ""}${number.toFixed(2)}`;
+}
+
+function formatSingle(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : "--";
+}
+
+function rankLabel(score) {
+  const s = Number(score || 0);
+  if (s >= 1_000_000) return "极";
+  if (s >= 950_000) return "紫雅";
+  if (s >= 900_000) return "粉雅";
+  if (s >= 800_000) return "金雅";
+  if (s >= 750_000) return "银粹";
+  if (s >= 700_000) return "过关";
+  return "未通";
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value ?? "");
+  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 1))}…` : text;
 }
 
 function percent(value) {
@@ -360,37 +382,90 @@ function calculateRating() {
 function renderRatingTable() {
   const rows = state.ratingObjects;
   if (!rows.length) {
-    els.tableBody.innerHTML = '<tr><td colspan="9" class="empty-cell">没有可计算成绩</td></tr>';
+    els.ratingSvgWrap.className = "rating-svg-wrap muted-box";
+    els.ratingSvgWrap.textContent = "没有可计算成绩";
     return;
   }
 
-  els.tableBody.innerHTML = rows
+  const width = 1400;
+  const height = 1210;
+  const margin = 34;
+  const gap = 28;
+  const columnWidth = (width - margin * 2 - gap) / 2;
+  const rowHeight = 46;
+  const rowGap = 7;
+  const headerHeight = 106;
+  const sections = [
+    { mode: "里", title: "里 Rating B20", subtitle: "新公式：定数 + 分数补正", x: margin, color: "#246f92" },
+    { mode: "表", title: "表 Rating B20", subtitle: "旧公式：定数得点 x 良率表现", x: margin + columnWidth + gap, color: "#a23b35" },
+  ];
+
+  const sectionSvg = sections
     .map(
-      (item, index) => {
-        const row = item.row;
-        const modeClass = item.mode === "表" ? "excel" : "encoder";
+      (section) => {
+        const entries = rows
+          .map((item, index) => ({ item, index }))
+          .filter((entry) => entry.item.mode === section.mode)
+          .slice(0, RATING_BEST_COUNT);
+        const y = 30;
+        const rowSvg = entries
+          .map((entry, rankIndex) => {
+            const item = entry.item;
+            const row = item.row;
+            const rowY = y + headerHeight + rankIndex * (rowHeight + rowGap);
+            const selected = state.selectedRatingIndex === entry.index;
+            const fill = selected ? "#eef7fb" : "#ffffff";
+            const stroke = selected ? section.color : "#d9dee5";
+            const title = escapeHtml(truncateText(row.title, 23));
+            const source = escapeHtml(sourceLabel(row.chartSource, row.needsEncoder));
+            const subtitle = escapeHtml(`${levelName(row.level)} · ${source} · ${formatScore(row.highScore)} · ${rankLabel(row.highScore)}`);
+            const single = escapeHtml(formatSingle(item.displaySingle));
+            const constant = escapeHtml(Number(row.constant).toFixed(1));
+            const bonus = escapeHtml(formatBonus(row.bonus));
+            return `
+              <g class="rating-svg-row" data-rating-index="${entry.index}" tabindex="0" role="button">
+                <rect x="${section.x}" y="${rowY}" width="${columnWidth}" height="${rowHeight}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 2 : 1}" />
+                <rect x="${section.x}" y="${rowY}" width="5" height="${rowHeight}" rx="2" fill="${section.color}" />
+                <text x="${section.x + 18}" y="${rowY + 29}" font-size="17" font-weight="700" fill="#8b949e">${String(rankIndex + 1).padStart(2, "0")}</text>
+                <text x="${section.x + 58}" y="${rowY + 22}" font-size="17" font-weight="700" fill="#20252b">${title}</text>
+                <text x="${section.x + 58}" y="${rowY + 40}" font-size="12" fill="#66717d">${subtitle}</text>
+                <text x="${section.x + columnWidth - 212}" y="${rowY + 29}" font-size="16" font-weight="700" fill="#20252b" text-anchor="end">${constant}</text>
+                <text x="${section.x + columnWidth - 134}" y="${rowY + 29}" font-size="15" fill="#66717d" text-anchor="end">${bonus}</text>
+                <text x="${section.x + columnWidth - 20}" y="${rowY + 30}" font-size="22" font-weight="800" fill="${section.color}" text-anchor="end">${single}</text>
+              </g>
+            `;
+          })
+          .join("");
         return `
-        <tr class="clickable-row ${state.selectedRatingIndex === index ? "is-selected" : ""}" data-rating-index="${index}">
-          <td>${index + 1}</td>
-          <td><span class="source-badge ${modeClass}">${item.mode}R</span></td>
-          <td>${escapeHtml(row.title)}</td>
-          <td><span class="level-badge">${levelName(row.level)}</span></td>
-          <td><span class="source-badge ${sourceClass(row.chartSource)}">${sourceLabel(row.chartSource, row.needsEncoder)}</span></td>
-          <td class="numeric">${row.constant.toFixed(1)}</td>
-          <td class="numeric">${formatScore(row.highScore)}</td>
-          <td class="numeric">${formatBonus(row.bonus)}</td>
-          <td class="numeric">${item.displaySingle.toFixed(2)}</td>
-        </tr>
-      `;
+          <g>
+            <rect x="${section.x}" y="${y}" width="${columnWidth}" height="${height - 60}" rx="10" fill="#fbfcfd" stroke="#d9dee5" />
+            <text x="${section.x + 22}" y="${y + 40}" font-size="28" font-weight="800" fill="${section.color}">${section.title}</text>
+            <text x="${section.x + 22}" y="${y + 70}" font-size="16" fill="#66717d">${section.subtitle}</text>
+            <text x="${section.x + columnWidth - 20}" y="${y + 40}" font-size="18" font-weight="700" fill="#66717d" text-anchor="end">B20</text>
+            <text x="${section.x + columnWidth - 214}" y="${y + 95}" font-size="12" fill="#8b949e" text-anchor="end">定数</text>
+            <text x="${section.x + columnWidth - 134}" y="${y + 95}" font-size="12" fill="#8b949e" text-anchor="end">补正</text>
+            <text x="${section.x + columnWidth - 20}" y="${y + 95}" font-size="12" fill="#8b949e" text-anchor="end">单曲R</text>
+            ${rowSvg}
+          </g>
+        `;
       },
     )
     .join("");
+
+  els.ratingSvgWrap.className = "rating-svg-wrap";
+  els.ratingSvgWrap.innerHTML = `
+    <svg id="ratingObjectSvg" class="rating-object-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Rating B20">
+      <rect width="${width}" height="${height}" fill="#f7fafc" />
+      <text x="${margin}" y="24" font-size="14" fill="#66717d">点击任意歌曲查看详细数值</text>
+      ${sectionSvg}
+    </svg>
+  `;
 }
 
 function renderRatingDetail(item) {
   if (!item) {
     els.ratingDetail.className = "detail-panel muted-box";
-    els.ratingDetail.textContent = "点击 Rating 表中的歌曲查看详细数值";
+    els.ratingDetail.textContent = "点击 Rating 图中的歌曲查看详细数值";
     return;
   }
 
@@ -411,7 +486,7 @@ function renderRatingDetail(item) {
     ["良 / 可 / 不可", `${row.good} / ${row.ok} / ${row.ng}`],
     ["良率", percent(goodRate)],
     ["分数补正", formatBonus(row.bonus)],
-    ["当前单曲R", item.displaySingle.toFixed(2)],
+    ["当前单曲R", formatSingle(item.displaySingle)],
     ["单曲里R", Number.isFinite(row.single) ? row.single.toFixed(2) : "--"],
     ["单曲表R", classic ? classic.classicSingle.toFixed(2) : "--"],
     ["定数得点 x", classic ? classic.x.toFixed(2) : "--"],
@@ -713,8 +788,45 @@ function switchPage(pageId) {
   }
 }
 
+function exportSvgAsPng(svg) {
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const viewBox = svg.viewBox.baseVal;
+  const width = viewBox?.width || Number(svg.getAttribute("width")) || 1400;
+  const height = viewBox?.height || Number(svg.getAttribute("height")) || 1210;
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+
+  const source = new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, width, height);
+    URL.revokeObjectURL(url);
+    const link = document.createElement("a");
+    link.download = `taiko-rating-b20-${Date.now()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(url);
+    els.imageStatus.textContent = "SVG 导出失败";
+  };
+  image.src = url;
+}
+
 function exportPng() {
   calculateRating();
+  const svg = document.getElementById("ratingObjectSvg");
+  if (svg) {
+    exportSvgAsPng(svg);
+    return;
+  }
   const link = document.createElement("a");
   link.download = `taiko-rating-${Date.now()}.png`;
   link.href = els.canvas.toDataURL("image/png");
@@ -734,9 +846,19 @@ els.useEncoderInput.addEventListener("change", () => {
   renderChartDetail(null);
 });
 
-els.tableBody.addEventListener("click", (event) => {
+els.ratingSvgWrap.addEventListener("click", (event) => {
   const row = event.target.closest("[data-rating-index]");
   if (!row) return;
+  state.selectedRatingIndex = Number(row.dataset.ratingIndex);
+  renderRatingTable();
+  renderRatingDetail(state.ratingObjects[state.selectedRatingIndex]);
+});
+
+els.ratingSvgWrap.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const row = event.target.closest("[data-rating-index]");
+  if (!row) return;
+  event.preventDefault();
   state.selectedRatingIndex = Number(row.dataset.ratingIndex);
   renderRatingTable();
   renderRatingDetail(state.ratingObjects[state.selectedRatingIndex]);

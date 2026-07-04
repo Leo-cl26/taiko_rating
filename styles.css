@@ -293,6 +293,35 @@ tbody tr.clickable-row.is-selected td {
   padding: 40px 12px;
 }
 
+.rating-svg-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fafc;
+}
+
+.rating-svg-wrap.muted-box {
+  min-height: 180px;
+}
+
+.rating-object-svg {
+  display: block;
+  width: 100%;
+  min-width: 980px;
+  height: auto;
+}
+
+.rating-svg-row {
+  cursor: pointer;
+  outline: none;
+}
+
+.rating-svg-row:hover rect:first-child,
+.rating-svg-row:focus rect:first-child {
+  fill: #eef7fb;
+  stroke-width: 2;
+}
+
 .preview {
   position: sticky;
   top: 24px;

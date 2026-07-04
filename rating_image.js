@@ -261,8 +261,9 @@
   function rankLabel(score) {
     const s = Number(score || 0);
     if (s >= 1_000_000) return "极";
-    if (s >= 950_000) return "紫";
-    if (s >= 900_000) return "粉";
+    if (s >= 950_000) return "紫雅";
+    if (s >= 900_000) return "粉雅";
+    if (s >= 800_000) return "金雅";
     if (s >= 750_000) return "银粹";
     if (s >= 700_000) return "过关";
     return "未通";

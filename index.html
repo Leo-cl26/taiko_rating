@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Taiko Rating</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260704-rating-svg" />
   </head>
   <body>
     <main class="app-shell">
@@ -84,38 +84,17 @@
                 <h2>Rating B20</h2>
                 <div class="button-row">
                   <button id="recalculateButton" type="button">计算</button>
-                  <button id="exportButton" type="button">导出 PNG</button>
+                  <button id="exportButton" type="button">下载 PNG</button>
                 </div>
               </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>对象</th>
-                      <th>曲名</th>
-                      <th>难度</th>
-                      <th>来源</th>
-                      <th>定数</th>
-                      <th>分数</th>
-                      <th>补正</th>
-                      <th>单曲里R</th>
-                    </tr>
-                  </thead>
-                  <tbody id="ratingTableBody">
-                    <tr>
-                      <td colspan="9" class="empty-cell">等待数据</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <div id="ratingSvgWrap" class="rating-svg-wrap muted-box">等待数据</div>
             </section>
 
             <section class="panel">
               <div class="panel-head">
                 <h2>单曲详情</h2>
               </div>
-              <div id="ratingDetail" class="detail-panel muted-box">点击 Rating 表中的歌曲查看详细数值</div>
+              <div id="ratingDetail" class="detail-panel muted-box">点击 Rating 图中的歌曲查看详细数值</div>
             </section>
           </section>
 
@@ -210,7 +189,7 @@
       </section>
     </main>
 
-    <script src="rating_image.js"></script>
-    <script src="app.js"></script>
+    <script src="rating_image.js?v=20260704-rating-svg"></script>
+    <script src="app.js?v=20260704-rating-svg"></script>
   </body>
 </html>
