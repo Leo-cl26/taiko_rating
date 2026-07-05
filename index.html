@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Taiko Rating</title>
-    <link rel="stylesheet" href="styles.css?v=20260705-bpm-api-credit" />
+    <link rel="stylesheet" href="styles.css?v=20260705-mobile-curve" />
   </head>
   <body>
     <main class="app-shell">
@@ -87,8 +87,9 @@
             <section class="panel">
               <div class="panel-head">
                 <h2>Rating B20 / B30</h2>
-                <div class="button-row">
-                  <button id="recalculateButton" type="button">计算</button>
+                <div class="button-row rating-actions">
+                  <button id="curveButton" type="button">查看规则曲线</button>
+                  <button id="recalculateButton" type="button">刷新</button>
                   <button id="exportButton" type="button">下载 PNG</button>
                 </div>
               </div>
@@ -195,7 +196,45 @@
       </section>
     </div>
 
-    <script src="rating_image.js?v=20260705-bpm-api-credit"></script>
-    <script src="app.js?v=20260705-bpm-api-credit"></script>
+    <div id="curveModal" class="modal-backdrop" hidden>
+      <section class="modal-panel curve-modal-panel" role="dialog" aria-modal="true" aria-labelledby="curveModalTitle">
+        <div class="modal-head">
+          <div>
+            <span>新 Rating 规则</span>
+            <h2 id="curveModalTitle">分数补正曲线</h2>
+          </div>
+          <button id="curveModalClose" class="modal-close" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <figure class="curve-figure">
+            <img src="taiko_rating_curve.png?v=20260705-mobile-curve" alt="太鼓新 Rating 分数补正曲线" />
+            <figcaption>里 Rating 单曲评价 = 谱面定数 + 分数补正，B30 取平均。</figcaption>
+          </figure>
+        </div>
+      </section>
+    </div>
+
+    <div id="exportModal" class="modal-backdrop" hidden>
+      <section class="modal-panel export-modal-panel" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+        <div class="modal-head">
+          <div>
+            <span>下载 PNG</span>
+            <h2 id="exportModalTitle">Rating 图片已生成</h2>
+          </div>
+          <button id="exportModalClose" class="modal-close" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <p class="export-help">如果手机没有自动保存，请点“打开原图”或长按图片保存。</p>
+          <div class="button-row export-actions">
+            <a id="exportDownloadLink" class="button-link" href="#" download>保存 PNG</a>
+            <button id="exportOpenButton" type="button">打开原图</button>
+          </div>
+          <img id="exportImage" class="export-preview" alt="Rating PNG 预览" />
+        </div>
+      </section>
+    </div>
+
+    <script src="rating_image.js?v=20260705-mobile-curve"></script>
+    <script src="app.js?v=20260705-mobile-curve"></script>
   </body>
 </html>

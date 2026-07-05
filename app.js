@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260705-bpm-api-credit";
+const DATA_VERSION = "20260705-mobile-curve";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
 
@@ -59,6 +59,7 @@ const state = {
   localPreviews: new Map(),
   localPreviewSummary: null,
   localPreviewError: "",
+  exportImageUrl: "",
 };
 
 const els = {
@@ -69,6 +70,7 @@ const els = {
   fetchButton: document.getElementById("fetchButton"),
   fetchStatus: document.getElementById("fetchStatus"),
   constantsStatus: document.getElementById("constantsStatus"),
+  curveButton: document.getElementById("curveButton"),
   recalculateButton: document.getElementById("recalculateButton"),
   exportButton: document.getElementById("exportButton"),
   classicRatingValue: document.getElementById("classicRatingValue"),
@@ -94,6 +96,13 @@ const els = {
   chartModalTitle: document.getElementById("chartModalTitle"),
   chartModalBody: document.getElementById("chartModalBody"),
   chartModalClose: document.getElementById("chartModalClose"),
+  curveModal: document.getElementById("curveModal"),
+  curveModalClose: document.getElementById("curveModalClose"),
+  exportModal: document.getElementById("exportModal"),
+  exportModalClose: document.getElementById("exportModalClose"),
+  exportDownloadLink: document.getElementById("exportDownloadLink"),
+  exportOpenButton: document.getElementById("exportOpenButton"),
+  exportImage: document.getElementById("exportImage"),
 };
 
 function chartKey(songNo, level) {
@@ -1087,12 +1096,17 @@ function renderChartModalBody(chart) {
   `;
 }
 
+function syncModalOpenClass() {
+  const hasOpenModal = [els.chartModal, els.curveModal, els.exportModal].some((modal) => modal && !modal.hidden);
+  document.body.classList.toggle("modal-open", hasOpenModal);
+}
+
 function openChartModal(chart) {
   if (!chart || !els.chartModal) return;
   els.chartModalTitle.textContent = `${chart.display_title || chart.title} / ${chart.course_label || chart.course}`;
   els.chartModalBody.innerHTML = renderChartModalBody(chart);
   els.chartModal.hidden = false;
-  document.body.classList.add("modal-open");
+  syncModalOpenClass();
   els.chartModalClose?.focus();
 }
 
@@ -1100,7 +1114,20 @@ function closeChartModal() {
   if (!els.chartModal || els.chartModal.hidden) return;
   els.chartModal.hidden = true;
   els.chartModalBody.innerHTML = "";
-  document.body.classList.remove("modal-open");
+  syncModalOpenClass();
+}
+
+function openCurveModal() {
+  if (!els.curveModal) return;
+  els.curveModal.hidden = false;
+  syncModalOpenClass();
+  els.curveModalClose?.focus();
+}
+
+function closeCurveModal() {
+  if (!els.curveModal || els.curveModal.hidden) return;
+  els.curveModal.hidden = true;
+  syncModalOpenClass();
 }
 
 function renderFilterRows() {
@@ -1177,22 +1204,104 @@ function switchPage(pageId) {
   }
 }
 
-function exportPng() {
+function refreshRating() {
+  calculateRating();
+  els.fetchStatus.textContent = state.records.length ? `已刷新 ${state.records.length} 条记录` : "暂无成绩，先获取成绩";
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => {
+    if (!canvas.toBlob) {
+      const dataUrl = canvas.toDataURL("image/png");
+      const bytes = atob(dataUrl.split(",")[1] || "");
+      const array = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i += 1) array[i] = bytes.charCodeAt(i);
+      resolve(new Blob([array], { type: "image/png" }));
+      return;
+    }
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+}
+
+function isLikelyMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || window.innerWidth <= 760;
+}
+
+function openExportModal(url, filename) {
+  if (!els.exportModal) return;
+  if (state.exportImageUrl) URL.revokeObjectURL(state.exportImageUrl);
+  state.exportImageUrl = url;
+  els.exportImage.src = url;
+  els.exportDownloadLink.href = url;
+  els.exportDownloadLink.download = filename;
+  els.exportModal.hidden = false;
+  syncModalOpenClass();
+  els.exportDownloadLink.focus();
+}
+
+function closeExportModal() {
+  if (!els.exportModal || els.exportModal.hidden) return;
+  els.exportModal.hidden = true;
+  els.exportImage.removeAttribute("src");
+  if (state.exportImageUrl) {
+    URL.revokeObjectURL(state.exportImageUrl);
+    state.exportImageUrl = "";
+  }
+  syncModalOpenClass();
+}
+
+function downloadBlob(url, filename) {
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 30_000);
+}
+
+async function exportPng() {
   calculateRating();
   if (!window.TaikoRatingImage?.renderRatingImage) {
     els.fetchStatus.textContent = "图片导出模块未载入";
     return;
   }
-  const canvas = document.createElement("canvas");
-  window.TaikoRatingImage.renderRatingImage(canvas, { allRows: state.rated });
-  const link = document.createElement("a");
-  link.download = `taiko-rating-preview-${Date.now()}.png`;
-  link.href = canvas.toDataURL("image/png");
-  link.click();
+  if (!state.rated.length) {
+    els.fetchStatus.textContent = "暂无可导出的成绩";
+    return;
+  }
+  els.exportButton.disabled = true;
+  const originalText = els.exportButton.textContent;
+  els.exportButton.textContent = "生成中";
+  try {
+    const canvas = document.createElement("canvas");
+    window.TaikoRatingImage.renderRatingImage(canvas, { allRows: state.rated });
+    const blob = await canvasToBlob(canvas);
+    if (!blob) throw new Error("PNG 生成失败");
+    const filename = `taiko-rating-${Date.now()}.png`;
+    const url = URL.createObjectURL(blob);
+    if (isLikelyMobileDevice()) {
+      openExportModal(url, filename);
+      els.fetchStatus.textContent = "PNG 已生成，手机端可长按图片保存";
+    } else {
+      downloadBlob(url, filename);
+      els.fetchStatus.textContent = "PNG 已生成";
+    }
+  } catch (err) {
+    els.fetchStatus.textContent = err instanceof Error ? err.message : "PNG 生成失败";
+  } finally {
+    els.exportButton.disabled = false;
+    els.exportButton.textContent = originalText;
+  }
 }
 
 els.fetchButton.addEventListener("click", fetchScores);
-els.recalculateButton.addEventListener("click", calculateRating);
+els.curveButton?.addEventListener("click", openCurveModal);
+els.recalculateButton.addEventListener("click", refreshRating);
 els.exportButton.addEventListener("click", exportPng);
 
 els.useEncoderInput.addEventListener("change", () => {
@@ -1244,6 +1353,8 @@ els.chartPagination?.addEventListener("click", (event) => {
 });
 
 els.chartModalClose?.addEventListener("click", closeChartModal);
+els.curveModalClose?.addEventListener("click", closeCurveModal);
+els.exportModalClose?.addEventListener("click", closeExportModal);
 
 els.chartModal?.addEventListener("click", (event) => {
   if (event.target === els.chartModal) {
@@ -1251,9 +1362,28 @@ els.chartModal?.addEventListener("click", (event) => {
   }
 });
 
+els.curveModal?.addEventListener("click", (event) => {
+  if (event.target === els.curveModal) {
+    closeCurveModal();
+  }
+});
+
+els.exportModal?.addEventListener("click", (event) => {
+  if (event.target === els.exportModal) {
+    closeExportModal();
+  }
+});
+
+els.exportOpenButton?.addEventListener("click", () => {
+  const url = state.exportImageUrl;
+  if (url) window.open(url, "_blank", "noopener");
+});
+
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    closeChartModal();
+    if (els.exportModal && !els.exportModal.hidden) closeExportModal();
+    else if (els.curveModal && !els.curveModal.hidden) closeCurveModal();
+    else closeChartModal();
   }
 });
 

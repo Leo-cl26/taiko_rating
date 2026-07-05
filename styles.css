@@ -31,7 +31,8 @@ textarea {
   font: inherit;
 }
 
-button {
+button,
+.button-link {
   border: 1px solid var(--ink);
   background: var(--ink);
   color: #fff;
@@ -39,10 +40,20 @@ button {
   padding: 0 14px;
   border-radius: 6px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
   filter: brightness(0.96);
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 
 .button-row {
@@ -52,6 +63,7 @@ button:hover {
 }
 
 .button-row button,
+.button-row .button-link,
 .page-tabs button {
   background: #fff;
   color: var(--ink);
@@ -588,6 +600,49 @@ body.modal-open {
   place-items: center;
 }
 
+.curve-modal-panel,
+.export-modal-panel {
+  width: min(1040px, 100%);
+}
+
+.curve-figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.curve-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.curve-figure figcaption,
+.export-help {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.curve-figure figcaption {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.export-actions {
+  justify-content: flex-start;
+}
+
+.export-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 @media (max-width: 1100px) {
   .topbar {
     flex-direction: column;
@@ -601,7 +656,7 @@ body.modal-open {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 14px;
+    padding: 12px;
   }
 
   .topbar,
@@ -610,12 +665,58 @@ body.modal-open {
     flex-direction: column;
   }
 
-  .summary-strip,
   .form-grid,
   .data-controls,
   .detail-grid,
   .filter-row {
     grid-template-columns: 1fr;
+  }
+
+  .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-tabs,
+  .rating-actions,
+  .export-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rating-actions button:first-child,
+  .export-actions .button-link {
+    grid-column: 1 / -1;
+  }
+
+  .page-tabs button,
+  .button-row button,
+  .button-row .button-link {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 10px;
+  }
+
+  .panel {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .rating-svg-wrap,
+  .table-wrap,
+  .local-preview-frame {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rating-object-svg {
+    min-width: 760px;
+  }
+
+  .data-table {
+    min-width: 1120px;
+  }
+
+  .local-preview-svg {
+    min-width: 720px;
   }
 
   .modal-backdrop {
@@ -638,7 +739,30 @@ body.modal-open {
     grid-template-columns: 1fr;
   }
 
+  .preview-figure figcaption {
+    flex-direction: column;
+  }
+
   h1 {
     font-size: 28px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-shell {
+    padding: 10px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .summary-strip strong {
+    font-size: 20px;
+  }
+
+  .rating-actions,
+  .export-actions {
+    grid-template-columns: 1fr;
   }
 }
