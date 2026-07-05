@@ -36,6 +36,20 @@ from taiko_diffusion.train_const_ordinal import ConstOrdinalModel, physical_feat
 
 
 MODEL_NAME = "const_ordinal_lowaux_v1"
+BPM_RHYTHM_BIN_VALUES = {
+    0: 0.0,
+    1: 12.5,
+    2: 50.0,
+}
+BPM_RHYTHM_BIN_LABELS = {
+    0: "无BPM变化",
+    1: "轻量BPM变化",
+    2: "明显BPM变化",
+}
+BPM_RHYTHM_BIN_REASON = (
+    "const_ordinal_lowaux_v1 只预测 bpm_rhythm_bin 离散分类；"
+    "为兼容前端排序与六维计算，将 0/1/2 档映射为 0/12.5/50 的代表数值。"
+)
 
 
 def is_encoder_row(row: dict[str, Any]) -> bool:
@@ -111,11 +125,13 @@ def infer_batch(
         const_pred = output["const_pred"].detach().cpu().numpy()
         mode_const = output["mode_const"].detach().cpu().numpy()
         bin_probs = torch.softmax(output["bin_logits"], dim=1).detach().cpu().numpy()
+        bpm_probs = torch.softmax(output["bpm_logits"], dim=1).detach().cpu().numpy()
         low_probs = torch.sigmoid(output["low_logits"]).detach().cpu().numpy()
 
     results = []
     for index, item in enumerate(batch):
         pred_bin = int(np.argmax(bin_probs[index]))
+        bpm_bin = int(np.argmax(bpm_probs[index]))
         results.append(
             {
                 "id": str(item["row"].get("id")),
@@ -123,6 +139,8 @@ def infer_batch(
                 "mode_const": float(mode_const[index]),
                 "const_bin_pred": pred_bin,
                 "const_bin_probs": [float(value) for value in bin_probs[index]],
+                "bpm_rhythm_bin_pred": bpm_bin,
+                "bpm_rhythm_probs": [float(value) for value in bpm_probs[index]],
                 "low_aux_probs": {
                     "const_le_5": float(low_probs[index, 0]),
                     "const_le_6": float(low_probs[index, 1]),
@@ -148,6 +166,23 @@ def apply_result(
     stats["const"] = round_const(result["const"])
     if result["combo"]:
         stats["combo"] = result["combo"]
+    bpm_bin = int(result["bpm_rhythm_bin_pred"])
+    bpm_value = BPM_RHYTHM_BIN_VALUES.get(bpm_bin, 0.0)
+    features = dict(stats.get("features") or {})
+    previous_bpm_change = features.get("bpm_change")
+    features["bpm_change"] = bpm_value
+    stats["features"] = features
+    feature_notes = dict(stats.get("feature_notes") or {})
+    feature_notes["bpm_change"] = {
+        "source": "bpm_rhythm_bin",
+        "model": MODEL_NAME,
+        "bin": bpm_bin,
+        "bin_label": BPM_RHYTHM_BIN_LABELS.get(bpm_bin, "未知BPM变化档"),
+        "representative_value": bpm_value,
+        "previous_value": previous_bpm_change,
+        "reason": BPM_RHYTHM_BIN_REASON,
+    }
+    stats["feature_notes"] = feature_notes
 
     encoder = dict(stats.get("encoder") or {})
     previous_model = encoder.get("model")
@@ -164,6 +199,10 @@ def apply_result(
             "mode_const_raw": round(float(result["mode_const"]), 4),
             "const_bin_pred": int(result["const_bin_pred"]),
             "const_bin_probs": result["const_bin_probs"],
+            "bpm_rhythm_bin_pred": bpm_bin,
+            "bpm_rhythm_probs": result["bpm_rhythm_probs"],
+            "bpm_change_from_bin": bpm_value,
+            "bpm_change_from_bin_reason": BPM_RHYTHM_BIN_REASON,
             "low_aux_probs": result["low_aux_probs"],
             "parse_mode": result["parse_mode"],
             "duration_frames": result["duration_frames"],

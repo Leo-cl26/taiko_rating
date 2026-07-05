@@ -17,3 +17,7 @@ python -m http.server 8765
 ```
 
 Then open `http://127.0.0.1:8765/`.
+
+GitHub Pages can serve this repo directly as a static site. In the repository
+settings, enable Pages with source `Deploy from a branch`, branch `main`, folder
+`/ (root)`.

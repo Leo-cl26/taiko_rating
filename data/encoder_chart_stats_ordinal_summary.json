@@ -20,6 +20,6 @@
   "model": "const_ordinal_lowaux_v1",
   "checkpoint": "D:\\taiko\\taiko-diffusion\\checkpoints\\const_ordinal_lowaux_experiment\\best.pt",
   "base_stats": "D:\\taiko\\taiko_rating\\data\\encoder_chart_stats.json",
-  "elapsed_seconds": 106.0,
+  "elapsed_seconds": 107.46,
   "error_samples": []
 }

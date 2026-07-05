@@ -1,19 +1,166 @@
 {
-  "total": 6094,
+  "total": 5960,
   "by_course": {
-    "Edit": 386,
-    "Hard": 2881,
+    "Edit": 374,
+    "Hard": 2823,
     "Normal": 2,
-    "Oni": 2825
+    "Oni": 2761
   },
   "by_source": {
-    "encoder": 4561,
-    "excel": 993,
-    "fumen": 540
+    "encoder": 4479,
+    "excel": 991,
+    "fumen": 490
   },
   "needs_encoder": 0,
-  "duplicate_title_groups": 215,
-  "duplicate_chart_rows": 473,
+  "duplicate_title_groups": 148,
+  "duplicate_chart_rows": 311,
+  "exact_numeric_dedupe": {
+    "duplicate_groups_removed": 125,
+    "duplicate_rows_removed": 134,
+    "samples": [
+      {
+        "kept": "ANATATO TURATTATTA♪",
+        "course": "Edit",
+        "removed": [
+          "あなたとトゥラッタッタ♪ -カバー版-"
+        ]
+      },
+      {
+        "kept": "ANATATO TURATTATTA♪",
+        "course": "Oni",
+        "removed": [
+          "あなたとトゥラッタッタ♪ -カバー版-"
+        ]
+      },
+      {
+        "kept": "ANATATO TURATTATTA♪",
+        "course": "Hard",
+        "removed": [
+          "あなたとトゥラッタッタ♪ -カバー版-"
+        ]
+      },
+      {
+        "kept": "晚餐歌",
+        "course": "Oni",
+        "removed": [
+          "晩餐歌"
+        ]
+      },
+      {
+        "kept": "晚餐歌",
+        "course": "Hard",
+        "removed": [
+          "晩餐歌"
+        ]
+      },
+      {
+        "kept": "月光",
+        "course": "Hard",
+        "removed": [
+          "だから僕は音楽を辞めた -Cover Version-"
+        ]
+      },
+      {
+        "kept": "群青",
+        "course": "Oni",
+        "removed": [
+          "群青"
+        ]
+      },
+      {
+        "kept": "群青",
+        "course": "Hard",
+        "removed": [
+          "群青"
+        ]
+      },
+      {
+        "kept": "Harudion",
+        "course": "Oni",
+        "removed": [
+          "Harudion"
+        ]
+      },
+      {
+        "kept": "Harudion",
+        "course": "Hard",
+        "removed": [
+          "Harudion"
+        ]
+      },
+      {
+        "kept": "怪物",
+        "course": "Oni",
+        "removed": [
+          "怪物"
+        ]
+      },
+      {
+        "kept": "怪物",
+        "course": "Hard",
+        "removed": [
+          "怪物"
+        ]
+      },
+      {
+        "kept": "樱桃",
+        "course": "Oni",
+        "removed": [
+          "樱桃"
+        ]
+      },
+      {
+        "kept": "樱桃",
+        "course": "Hard",
+        "removed": [
+          "樱桃",
+          "樱桃"
+        ]
+      },
+      {
+        "kept": "上海ハニー",
+        "course": "Hard",
+        "removed": [
+          "上海ハニー"
+        ]
+      },
+      {
+        "kept": "Show",
+        "course": "Oni",
+        "removed": [
+          "Show"
+        ]
+      },
+      {
+        "kept": "Show",
+        "course": "Hard",
+        "removed": [
+          "Show"
+        ]
+      },
+      {
+        "kept": "天体観測",
+        "course": "Hard",
+        "removed": [
+          "天体観測 -Old Audio-"
+        ]
+      },
+      {
+        "kept": "TT",
+        "course": "Oni",
+        "removed": [
+          "TT -Japanese ver.-"
+        ]
+      },
+      {
+        "kept": "TT",
+        "course": "Hard",
+        "removed": [
+          "TT -Japanese ver.-"
+        ]
+      }
+    ]
+  },
   "force_included": [
     {
       "title": "DARK EX MACHINA♡",

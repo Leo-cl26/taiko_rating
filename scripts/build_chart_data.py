@@ -116,7 +116,7 @@ def excel_stats(row: dict[str, str]) -> dict[str, Any]:
 
 def numeric_stats(stats: dict[str, Any]) -> dict[str, Any]:
     features = stats.get("features") or {}
-    return {
+    result = {
         "const": as_float(stats.get("const")),
         "combo": as_int(stats.get("combo")),
         "features": {
@@ -132,6 +132,9 @@ def numeric_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "roll_time_seconds": as_float(stats.get("roll_time_seconds")),
         "balloon_num": as_int(stats.get("balloon_num"), 0),
     }
+    if isinstance(stats.get("feature_notes"), dict):
+        result["feature_notes"] = stats["feature_notes"]
+    return result
 
 
 def build_excel_by_course(strict_rows: list[dict[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -286,6 +289,103 @@ def variant_label(row: dict[str, Any]) -> str:
     return path_text or str(row.get("course") or "")
 
 
+def numeric_signature(row: dict[str, Any]) -> str:
+    features = row.get("features") if isinstance(row.get("features"), dict) else {}
+    payload = {
+        "course": row.get("course"),
+        "level": row.get("level"),
+        "score_level": row.get("score_level"),
+        "const": row.get("const"),
+        "combo": row.get("combo"),
+        "features": {
+            key: features.get(key)
+            for key in ["complex", "avg_density", "peak_density", "note_type", "bpm_change", "hs_change", "rhythm"]
+        },
+        "roll_time": row.get("roll_time_seconds") if row.get("roll_time_seconds") is not None else row.get("roll_time"),
+        "balloon_num": row.get("balloon_num"),
+        "rating_excluded": row.get("rating_excluded"),
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def dedupe_keep_key(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
+    path = str(row.get("ese", {}).get("path") or "")
+    title = str(row.get("title") or "")
+    text = f"{path} {title}".casefold()
+    variant_penalty = int(any(token in text for token in ["anomaly", "anomalous", "cover", "old audio", "new audio", "nijisanji"]))
+    source_rank = {"excel": 0, "fumen": 1, "encoder": 2, "encoder_pending": 3}.get(str(row.get("source")), 4)
+    preview_penalty = 0 if row.get("preview_images") else 1
+    return (variant_penalty, source_rank, preview_penalty, len(path), path)
+
+
+def merge_aliases(target: dict[str, Any], duplicate: dict[str, Any]) -> None:
+    aliases = list(target.get("aliases") or [])
+    for value in [
+        duplicate.get("title"),
+        duplicate.get("display_title"),
+        duplicate.get("variant_label"),
+        *(duplicate.get("aliases") or []),
+    ]:
+        if value and value != target.get("title") and value not in aliases:
+            aliases.append(value)
+    target["aliases"] = aliases
+
+
+def drop_exact_numeric_duplicates(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in records:
+        groups.setdefault(numeric_signature(row), []).append(row)
+
+    kept: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for group in groups.values():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+        group.sort(key=dedupe_keep_key)
+        primary = group[0]
+        merged_titles: list[str] = []
+        merged_paths: list[str] = []
+        for duplicate in group[1:]:
+            merge_aliases(primary, duplicate)
+            removed.append(duplicate)
+            title = duplicate.get("display_title") or duplicate.get("title")
+            path = duplicate.get("ese", {}).get("path")
+            if title and title not in merged_titles:
+                merged_titles.append(title)
+            if path and path not in merged_paths:
+                merged_paths.append(path)
+            if duplicate.get("preview_images") and not primary.get("preview_images"):
+                primary["wiki_preview"] = duplicate.get("wiki_preview")
+                primary["preview_images"] = duplicate.get("preview_images")
+        primary["dedupe"] = {
+            "merged_count": len(group),
+            "removed_count": len(group) - 1,
+            "reason": "数值签名完全相同，仅曲名或谱面路径不同；保留一个代表谱面并把其它曲名合并为别名。",
+            "merged_titles": merged_titles,
+            "merged_paths": merged_paths,
+        }
+        kept.append(primary)
+
+    summary = {
+        "duplicate_groups_removed": sum(1 for group in groups.values() if len(group) > 1),
+        "duplicate_rows_removed": len(removed),
+        "samples": [
+            {
+                "kept": group[0].get("display_title") or group[0].get("title"),
+                "course": group[0].get("course"),
+                "removed": [item.get("display_title") or item.get("title") for item in group[1:]],
+            }
+            for group in (
+                sorted(values, key=dedupe_keep_key)
+                for values in groups.values()
+                if len(values) > 1
+            )
+        ][:20],
+    }
+    return kept, summary
+
+
 def add_duplicate_metadata(records: list[dict[str, Any]]) -> None:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in records:
@@ -329,8 +429,11 @@ def build_chart_data(
         excel_row = excel_by_course.get(key)
         records.append(make_record(row, excel_row, fumen_stats_by_id, encoder_stats_by_id, wiki_previews_by_id))
 
+    records, dedupe_summary = drop_exact_numeric_duplicates(records)
     records.sort(key=lambda item: (item["course"] != "Edit", item["course"] != "Oni", item["course"] != "Hard", item["title"]))
     add_duplicate_metadata(records)
+    for row in records:
+        row["_dedupe_summary"] = dedupe_summary
     return records
 
 
@@ -339,6 +442,9 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     by_source = Counter(row["source"] for row in records)
     forced = [row for row in records if row["force_included"]]
     duplicate_groups = Counter((row["title_normalized"], row["course"]) for row in records)
+    dedupe_summary = records[0].pop("_dedupe_summary", {}) if records and "_dedupe_summary" in records[0] else {}
+    for row in records:
+        row.pop("_dedupe_summary", None)
     return {
         "total": len(records),
         "by_course": dict(sorted(by_course.items())),
@@ -346,6 +452,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "needs_encoder": sum(1 for row in records if row["needs_encoder"]),
         "duplicate_title_groups": sum(1 for count in duplicate_groups.values() if count > 1),
         "duplicate_chart_rows": sum(count for count in duplicate_groups.values() if count > 1),
+        "exact_numeric_dedupe": dedupe_summary,
         "force_included": [
             {
                 "title": row["title"],
