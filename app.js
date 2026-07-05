@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260705-pagination-rank-colors";
+const DATA_VERSION = "20260705-local-preview";
 const RATING_BEST_COUNT = 20;
 const CHART_PAGE_SIZE = 10;
 
@@ -55,6 +55,9 @@ const state = {
   selectedChartIndex: null,
   chartPage: 1,
   chartFilters: [],
+  localPreviews: new Map(),
+  localPreviewSummary: null,
+  localPreviewError: "",
 };
 
 const els = {
@@ -276,6 +279,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function getLocalPreview(chart) {
+  return state.localPreviews.get(chart?.id) || null;
+}
+
 function indexChartData(charts) {
   state.constantsByTitle.clear();
   for (const chart of charts) {
@@ -318,12 +325,29 @@ function updateChartStatus() {
   els.constantsStatus.textContent = `当前启用 ${included.length} 张谱面：社区数据 ${excelCount}，网站数据 ${fumenCount}，神经网络 ${encoderCount}，可用于 Rating ${usableCount}`;
 }
 
+async function loadLocalPreviews() {
+  try {
+    const resp = await fetch(`data/local_chart_previews.json?v=${DATA_VERSION}`, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const payload = await resp.json();
+    const previews = payload?.previews && typeof payload.previews === "object" ? payload.previews : {};
+    state.localPreviews = new Map(Object.entries(previews));
+    state.localPreviewSummary = payload?.summary || null;
+    state.localPreviewError = "";
+  } catch (err) {
+    state.localPreviews = new Map();
+    state.localPreviewSummary = null;
+    state.localPreviewError = err instanceof Error ? err.message : "未知错误";
+  }
+}
+
 async function loadChartData() {
   try {
     const resp = await fetch(`data/chart_data.json?v=${DATA_VERSION}`, { cache: "no-store" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const charts = await resp.json();
     state.chartData = Array.isArray(charts) ? charts : [];
+    await loadLocalPreviews();
     indexChartData(state.chartData);
     updateChartStatus();
     renderChartBrowser();
@@ -916,7 +940,93 @@ function renderChartBrowser() {
     .join("");
 }
 
+function previewNoteSvg(note, x, y) {
+  const value = String(note);
+  const common = `cx="${x.toFixed(1)}" cy="${y.toFixed(1)}"`;
+  if (value === "1") return `<circle ${common} r="6.2" fill="#e5484d" stroke="#8f1f24" stroke-width="1.4" />`;
+  if (value === "2") return `<circle ${common} r="6.2" fill="#3584e4" stroke="#174d8d" stroke-width="1.4" />`;
+  if (value === "3") return `<circle ${common} r="8.8" fill="#e5484d" stroke="#8f1f24" stroke-width="1.6" />`;
+  if (value === "4") return `<circle ${common} r="8.8" fill="#3584e4" stroke="#174d8d" stroke-width="1.6" />`;
+  if (value === "5" || value === "6") {
+    return `<rect x="${(x - 7).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="14" height="14" rx="7" fill="#f0b429" stroke="#9f6b00" stroke-width="1.2" />`;
+  }
+  if (value === "7") {
+    return `<rect x="${(x - 8).toFixed(1)}" y="${(y - 8).toFixed(1)}" width="16" height="16" rx="5" fill="#9b5de5" stroke="#58309a" stroke-width="1.2" />`;
+  }
+  if (value === "8") {
+    return `<path d="M ${x.toFixed(1)} ${(y - 7).toFixed(1)} L ${(x + 7).toFixed(1)} ${y.toFixed(1)} L ${x.toFixed(1)} ${(y + 7).toFixed(1)} L ${(x - 7).toFixed(1)} ${y.toFixed(1)} Z" fill="#3d4650" />`;
+  }
+  return `<circle ${common} r="4.6" fill="#7a8490" />`;
+}
+
+function renderLocalPreviewSvg(preview, chart) {
+  const measures = Array.isArray(preview?.measures) ? preview.measures : [];
+  if (!measures.length) return "";
+
+  const width = 1180;
+  const cols = 4;
+  const margin = 26;
+  const gap = 18;
+  const measureWidth = (width - margin * 2 - gap * (cols - 1)) / cols;
+  const measureHeight = 54;
+  const rowGap = 12;
+  const top = 86;
+  const rows = Math.ceil(measures.length / cols);
+  const height = top + rows * (measureHeight + rowGap) + 52;
+  const title = chart.display_title || chart.title || "Taiko chart";
+  const subtitle = `${chart.course_label || chart.course || ""}  ★${formatLoose(chart.level, 0)}  ${preview.shown_measure_count || measures.length}/${preview.measure_count || measures.length} 小节`;
+
+  const measureSvgs = measures
+    .map((measure, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const x = margin + col * (measureWidth + gap);
+      const y = top + row * (measureHeight + rowGap);
+      const laneY = y + 29;
+      const notes = String(measure || "0").split("");
+      const noteSvgs = notes
+        .map((note, noteIndex) => {
+          if (note === "0") return "";
+          const noteX = x + 34 + ((measureWidth - 48) * (noteIndex + 0.5)) / Math.max(1, notes.length);
+          return previewNoteSvg(note, noteX, laneY);
+        })
+        .join("");
+      return `
+        <g>
+          <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${measureWidth.toFixed(1)}" height="${measureHeight}" rx="7" fill="#fffaf2" stroke="#d8c7a5" />
+          <line x1="${(x + 28).toFixed(1)}" y1="${laneY}" x2="${(x + measureWidth - 14).toFixed(1)}" y2="${laneY}" stroke="#c7d0d8" stroke-width="2" />
+          <text x="${(x + 10).toFixed(1)}" y="${(y + 18).toFixed(1)}" font-size="11" fill="#7b6a4a">${index + 1}</text>
+          ${noteSvgs}
+        </g>
+      `;
+    })
+    .join("");
+
+  const clippedText = preview.is_clipped ? " · 仅显示前段预览" : "";
+  return `
+    <svg class="local-preview-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)} 谱面预览">
+      <rect width="${width}" height="${height}" fill="#f7f8fa" />
+      <text x="26" y="34" font-size="22" font-weight="800" fill="#20262d">${escapeHtml(truncateText(title, 52))}</text>
+      <text x="26" y="62" font-size="14" fill="#66717d">${escapeHtml(subtitle)}${escapeHtml(clippedText)}</text>
+      <g>${measureSvgs}</g>
+      <text x="26" y="${height - 20}" font-size="12" fill="#8a94a0">本地 TJA 解析生成：红/蓝为咚/咔，较大圆为大音符，黄/紫为连打/气球，深色菱形为连打结束。</text>
+    </svg>
+  `;
+}
+
 function renderPreviewImages(chart) {
+  const localPreview = getLocalPreview(chart);
+  if (localPreview) {
+    return `
+      <figure class="preview-figure local-preview-figure">
+        <div class="local-preview-frame">${renderLocalPreviewSvg(localPreview, chart)}</div>
+        <figcaption>
+          <span>本地谱面生成</span>
+          <span>${escapeHtml(`${localPreview.shown_measure_count || 0}/${localPreview.measure_count || 0} 小节`)}</span>
+        </figcaption>
+      </figure>
+    `;
+  }
   const images = Array.isArray(chart.preview_images) ? chart.preview_images.slice(0, 2) : [];
   if (!images.length) {
     return '<div class="muted-box preview-empty">暂无谱面预览</div>';
@@ -950,6 +1060,7 @@ function renderPreviewImages(chart) {
 
 function renderChartModalBody(chart) {
   const f = chart.features || {};
+  const localPreview = getLocalPreview(chart);
   const items = [
     ["曲名", chart.display_title || chart.title],
     ["原曲名", chart.title],
@@ -970,8 +1081,8 @@ function renderChartModalBody(chart) {
     ["Rating计入", chart.rating_excluded ? "不计入" : "计入"],
     ["排除原因", chart.rating_exclusion_reason || "--"],
     ["重名组", chart.duplicate_group_size > 1 ? `${chart.duplicate_index}/${chart.duplicate_group_size}` : "--"],
-    ["预览匹配", chart.wiki_preview?.matched_name || "--"],
-    ["预览页面", chart.wiki_preview?.source_page || "--"],
+    ["预览来源", localPreview ? "本地 TJA 谱面生成" : "--"],
+    ["预览小节", localPreview ? `${localPreview.shown_measure_count}/${localPreview.measure_count}` : "--"],
     ["网站", chart.fumen?.url || "--"],
     ["路径", chart.ese?.path || "--"],
   ];

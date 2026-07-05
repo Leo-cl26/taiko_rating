@@ -551,6 +551,23 @@ body.modal-open {
   background: #fff;
 }
 
+.local-preview-figure {
+  grid-column: 1 / -1;
+}
+
+.local-preview-frame {
+  max-height: 720px;
+  overflow: auto;
+  background: #f7f8fa;
+}
+
+.local-preview-svg {
+  display: block;
+  width: 100%;
+  min-width: 820px;
+  height: auto;
+}
+
 .preview-figure figcaption {
   display: flex;
   justify-content: space-between;

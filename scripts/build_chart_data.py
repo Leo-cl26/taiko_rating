@@ -197,7 +197,6 @@ def make_record(
     excel_row: dict[str, str] | None,
     fumen_stats_by_id: dict[str, Any],
     encoder_stats_by_id: dict[str, Any],
-    wiki_previews_by_id: dict[str, Any],
 ) -> dict[str, Any]:
     course = clean_course(row.get("course", ""))
     course_level = COURSE_LEVEL.get(course.casefold())
@@ -235,7 +234,6 @@ def make_record(
         if value and value != title
     ]
     rating_excluded = course.casefold() == "normal"
-    wiki_preview = wiki_previews_by_id.get(record_id) if isinstance(wiki_previews_by_id.get(record_id), dict) else {}
     return {
         "id": record_id,
         "title": title,
@@ -255,8 +253,6 @@ def make_record(
             "balloon_declared": row.get("balloon_declared") or None,
         },
         **stats,
-        "wiki_preview": wiki_preview or None,
-        "preview_images": wiki_preview.get("images", []) if wiki_preview else [],
         "source": source,
         "needs_encoder": excel_row is None and fumen_row_stats is None and generated_stats is None,
         "rating_excluded": rating_excluded,
@@ -314,8 +310,7 @@ def dedupe_keep_key(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
     text = f"{path} {title}".casefold()
     variant_penalty = int(any(token in text for token in ["anomaly", "anomalous", "cover", "old audio", "new audio", "nijisanji"]))
     source_rank = {"excel": 0, "fumen": 1, "encoder": 2, "encoder_pending": 3}.get(str(row.get("source")), 4)
-    preview_penalty = 0 if row.get("preview_images") else 1
-    return (variant_penalty, source_rank, preview_penalty, len(path), path)
+    return (variant_penalty, source_rank, 0, len(path), path)
 
 
 def merge_aliases(target: dict[str, Any], duplicate: dict[str, Any]) -> None:
@@ -355,9 +350,6 @@ def drop_exact_numeric_duplicates(records: list[dict[str, Any]]) -> tuple[list[d
                 merged_titles.append(title)
             if path and path not in merged_paths:
                 merged_paths.append(path)
-            if duplicate.get("preview_images") and not primary.get("preview_images"):
-                primary["wiki_preview"] = duplicate.get("wiki_preview")
-                primary["preview_images"] = duplicate.get("preview_images")
         primary["dedupe"] = {
             "merged_count": len(group),
             "removed_count": len(group) - 1,
@@ -411,7 +403,6 @@ def build_chart_data(
     excel_by_course: dict[tuple[str, str], dict[str, str]],
     fumen_stats_by_id: dict[str, Any],
     encoder_stats_by_id: dict[str, Any],
-    wiki_previews_by_id: dict[str, Any],
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -427,7 +418,7 @@ def build_chart_data(
             continue
         seen.add(key)
         excel_row = excel_by_course.get(key)
-        records.append(make_record(row, excel_row, fumen_stats_by_id, encoder_stats_by_id, wiki_previews_by_id))
+        records.append(make_record(row, excel_row, fumen_stats_by_id, encoder_stats_by_id))
 
     records, dedupe_summary = drop_exact_numeric_duplicates(records)
     records.sort(key=lambda item: (item["course"] != "Edit", item["course"] != "Oni", item["course"] != "Hard", item["title"]))
@@ -475,7 +466,6 @@ def main() -> None:
     parser.add_argument("--strict-matched", type=Path, default=Path("../taiko_encoder_out/strict_matched_dataset.csv"))
     parser.add_argument("--fumen-stats", type=Path, default=Path("data/fumen_chart_stats.json"))
     parser.add_argument("--encoder-stats", type=Path, default=Path("data/encoder_chart_stats.json"))
-    parser.add_argument("--wiki-previews", type=Path, default=Path("data/wiki_preview_images.json"))
     parser.add_argument("--output", type=Path, default=Path("data/chart_data.json"))
     parser.add_argument("--summary", type=Path, default=Path("data/chart_data_summary.json"))
     args = parser.parse_args()
@@ -488,11 +478,8 @@ def main() -> None:
     encoder_stats_by_id: dict[str, Any] = {}
     if args.encoder_stats.exists():
         encoder_stats_by_id = json.loads(args.encoder_stats.read_text(encoding="utf-8"))
-    wiki_previews_by_id: dict[str, Any] = {}
-    if args.wiki_previews.exists():
-        wiki_previews_by_id = json.loads(args.wiki_previews.read_text(encoding="utf-8"))
     excel_by_course = build_excel_by_course(strict_rows)
-    records = build_chart_data(ese_rows, excel_by_course, fumen_stats_by_id, encoder_stats_by_id, wiki_previews_by_id)
+    records = build_chart_data(ese_rows, excel_by_course, fumen_stats_by_id, encoder_stats_by_id)
     summary = summarize(records)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
