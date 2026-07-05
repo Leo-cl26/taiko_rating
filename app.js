@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260705-pass-fixed";
+const DATA_VERSION = "20260706-score-rank";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
 
@@ -228,32 +228,52 @@ function formatRatingValue(value) {
   return Number.isFinite(number) && number !== 0 ? number.toFixed(2) : "--";
 }
 
-function rankLabel(score) {
+const SCORE_RANK_LABELS = {
+  1: "无评价",
+  2: "白粹",
+  3: "铜粹",
+  4: "银粹",
+  5: "金雅",
+  6: "粉雅",
+  7: "紫雅",
+  8: "极",
+};
+
+const SCORE_RANK_COLORS = {
+  "白粹": "#7a8594",
+  "铜粹": "#b66a3c",
+  "银粹": "#8f9aa6",
+  "金雅": "#c88a13",
+  "粉雅": "#d65b91",
+  "紫雅": "#7c4dff",
+  "极": "#e03131",
+  "无评价": "#8b949e",
+};
+
+function normalizeScoreRank(item) {
+  return Number(item?.bestScoreRank ?? item?.best_score_rank ?? item?.score_rank ?? item?.rank ?? item?.raw?.best_score_rank ?? 0);
+}
+
+function fallbackRankLabel(score) {
   const s = Number(score || 0);
   if (s >= 1_000_000) return "极";
   if (s >= 950_000) return "紫雅";
   if (s >= 900_000) return "粉雅";
   if (s >= 800_000) return "金雅";
-  if (s >= 750_000) return "银粹";
-  if (s >= 700_000) return "过关";
-  return "未通过";
+  if (s >= 700_000) return "银粹";
+  return "无评价";
 }
 
-function rankColor(score) {
-  const label = rankLabel(score);
-  return {
-    "过关": "#c92a2a",
-    "银粹": "#8f9aa6",
-    "金雅": "#c88a13",
-    "粉雅": "#d65b91",
-    "紫雅": "#7c4dff",
-    "极": "#e03131",
-    "未通过": "#8b949e",
-  }[label] || "#8b949e";
+function scoreRankLabel(rank, score) {
+  return SCORE_RANK_LABELS[normalizeScoreRank({ bestScoreRank: rank })] || fallbackRankLabel(score);
 }
 
-function rankSvgFill(score) {
-  return rankLabel(score) === "极" ? "url(#rankRainbow)" : rankColor(score);
+function scoreRankColor(rank, score) {
+  return SCORE_RANK_COLORS[scoreRankLabel(rank, score)] || SCORE_RANK_COLORS["无评价"];
+}
+
+function scoreRankSvgFill(rank, score) {
+  return scoreRankLabel(rank, score) === "极" ? "url(#rankRainbow)" : scoreRankColor(rank, score);
 }
 
 function truncateText(value, maxLength) {
@@ -406,6 +426,7 @@ function normalizeHirobaScore(item) {
     aliases: [detail.song_name, detail.song_name_jp, detail.subtitle].filter(Boolean),
     genre: detail.type || "",
     highScore: Number(item.high_score ?? 0),
+    bestScoreRank: normalizeScoreRank(item),
     good: Number(item.good_cnt ?? 0),
     ok: Number(item.ok_cnt ?? 0),
     ng: Number(item.ng_cnt ?? 0),
@@ -432,6 +453,7 @@ function normalizeKinokoScore(group) {
       aliases: [group.title_cn, group.title, group.subTitle, group.subTitle_cn].filter(Boolean),
       genre: group.genre || "",
       highScore: Number(item.high_score ?? 0),
+      bestScoreRank: normalizeScoreRank(item),
       good: Number(item.good_cnt ?? 0),
       ok: Number(item.ok_cnt ?? 0),
       ng: Number(item.ng_cnt ?? 0),
@@ -479,6 +501,7 @@ function rateRecords(records) {
       const bonus = scoreBonus(record.highScore);
       const single = bonus == null ? null : chart.const + bonus;
       const clearCount = Number(record.clearCount ?? record.raw?.clear_cnt ?? 0);
+      const bestScoreRank = normalizeScoreRank(record);
       return {
         ...record,
         chart,
@@ -489,6 +512,7 @@ function rateRecords(records) {
         chartCombo: chart.combo,
         features: chart.features || {},
         clearCount,
+        bestScoreRank,
         passed: isPassedRecord(record),
         bonus,
         single,
@@ -591,7 +615,7 @@ function renderRatingTable(summary = state.ratingSummary) {
   const headerHeight = 106;
   const sectionY = 330;
   const sections = [
-    { mode: "里", title: "里 Rating B30", subtitle: "仅过关成绩：定数 + 分数补正，固定除以30", x: margin, color: "#246f92", total: summary.ura?.rating, count: RATING_BEST_COUNT },
+    { mode: "里", title: "里 Rating B30", subtitle: "仅 clear_cnt > 0：定数 + 分数补正，固定除以30", x: margin, color: "#246f92", total: summary.ura?.rating, count: RATING_BEST_COUNT },
     { mode: "表", title: "表 Rating B20", subtitle: "旧公式：定数得点 x 良率表现，固定除以20", x: margin + columnWidth + gap, color: "#a23b35", total: summary.classic?.rating, count: 20 },
   ];
   const topCards = `
@@ -608,7 +632,7 @@ function renderRatingTable(summary = state.ratingSummary) {
       <text x="${margin + 394}" y="88" font-size="20" font-weight="800" fill="#20252b">匹配谱面</text>
       <text x="${margin + 606}" y="158" font-size="58" font-weight="800" fill="#20252b" text-anchor="end">${escapeHtml(summary.matchedCount ?? 0)}</text>
       <text x="${margin + 394}" y="218" font-size="15" fill="#66717d">B20/B30 不满按 0 补位</text>
-      <text x="${margin + 394}" y="246" font-size="15" fill="#66717d">里 Rating 仅计入过关成绩</text>
+      <text x="${margin + 394}" y="246" font-size="15" fill="#66717d">里 Rating 仅计入 clear_cnt > 0</text>
     </g>
   `;
   const radarBlock = `
@@ -640,8 +664,8 @@ function renderRatingTable(summary = state.ratingSummary) {
             const source = escapeHtml(sourceLabel(row.chartSource, row.needsEncoder));
             const subtitle = escapeHtml(`${levelName(row.level)} · ${source}`);
             const score = escapeHtml(formatScore(row.highScore));
-            const rank = escapeHtml(rankLabel(row.highScore));
-            const rankFill = rankSvgFill(row.highScore);
+            const rank = escapeHtml(scoreRankLabel(row.bestScoreRank, row.highScore));
+            const rankFill = scoreRankSvgFill(row.bestScoreRank, row.highScore);
             const single = escapeHtml(formatSingle(item.displaySingle));
             const constant = escapeHtml(Number(row.constant).toFixed(1));
             const bonus = escapeHtml(formatBonus(row.bonus));
@@ -724,7 +748,7 @@ function renderRatingDetail(item) {
     ["来源", sourceLabel(row.chartSource, row.needsEncoder)],
     ["定数", row.constant.toFixed(1)],
     ["分数", formatScore(row.highScore)],
-    ["是否过关", row.passed ? "过关" : "未过关"],
+    ["评价", scoreRankLabel(row.bestScoreRank, row.highScore)],
     ["通关次数", formatLoose(row.clearCount, 0)],
     ["良 / 可 / 不可", `${row.good} / ${row.ok} / ${row.ng}`],
     ["良率", percent(goodRate)],

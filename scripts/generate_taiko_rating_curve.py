@@ -19,8 +19,8 @@ COLORS = {
 
 
 ANCHORS = [
-    (700_000, -2.0, "过关 / 70w"),
-    (750_000, -1.0, "银粹 / 75w"),
+    (700_000, -2.0, "银粹 / 70w"),
+    (750_000, -1.0, ""),
     (800_000, 0.0, "金雅 / 80w"),
     (900_000, 1.0, "粉雅 / 90w"),
     (950_000, 1.5, "紫雅 / 95w"),
@@ -210,7 +210,7 @@ def make_svg():
         f'height="{overview.h:.2f}" fill="none" stroke="{COLORS["line"]}" stroke-width="2" stroke-dasharray="7 5"/>'
     )
 
-    out.append(text(92, 858, "说明：里 Rating 仅计入 clear_cnt > 0 的过关成绩；B30 固定除以 30，未满按 0 补位。", "small"))
+    out.append(text(92, 858, "说明：里 Rating 仅计入 clear_cnt > 0 的成绩；B30 固定除以 30，未满按 0 补位。", "small"))
     out.append(text(92, 882, "分数补正：低于70万不再清零；50w=-10，60w=-6，65w=-4，70w=-2，80w=+0，90w=+1，100w=+2。", "small"))
     out.append("</svg>")
     return "\n".join(out) + "\n"

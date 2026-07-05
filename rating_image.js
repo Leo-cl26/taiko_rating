@@ -276,32 +276,48 @@
     }[String(level)] ?? String(level || "--");
   }
 
-  function rankLabel(score) {
+  const SCORE_RANK_LABELS = {
+    1: "无评价",
+    2: "白粹",
+    3: "铜粹",
+    4: "银粹",
+    5: "金雅",
+    6: "粉雅",
+    7: "紫雅",
+    8: "极",
+  };
+
+  const SCORE_RANK_COLORS = {
+    "白粹": "#7a8594",
+    "铜粹": "#b66a3c",
+    "银粹": "#8f9aa6",
+    "金雅": "#c88a13",
+    "粉雅": "#d65b91",
+    "紫雅": "#7c4dff",
+    "极": "#e03131",
+    "无评价": "#8b949e",
+  };
+
+  function scoreRankNumber(rowOrRank) {
+    return Number(rowOrRank?.bestScoreRank ?? rowOrRank?.best_score_rank ?? rowOrRank?.raw?.best_score_rank ?? rowOrRank ?? 0);
+  }
+
+  function fallbackRankLabel(score) {
     const s = Number(score || 0);
     if (s >= 1_000_000) return "极";
     if (s >= 950_000) return "紫雅";
     if (s >= 900_000) return "粉雅";
     if (s >= 800_000) return "金雅";
-    if (s >= 750_000) return "银粹";
-    if (s >= 700_000) return "过关";
-    return "未通过";
+    if (s >= 700_000) return "银粹";
+    return "无评价";
   }
 
-  function rankColor(score) {
-    const label = rankLabel(score);
-    return {
-      "过关": "#c92a2a",
-      "银粹": "#8f9aa6",
-      "金雅": "#c88a13",
-      "粉雅": "#d65b91",
-      "紫雅": "#7c4dff",
-      "极": "#e03131",
-      "未通过": "#8b949e",
-    }[label] || "#8b949e";
+  function scoreRankLabel(rowOrRank, score) {
+    return SCORE_RANK_LABELS[scoreRankNumber(rowOrRank)] || fallbackRankLabel(score);
   }
 
-  function rankPaint(ctx, score, x, w) {
-    if (rankLabel(score) !== "极") return rankColor(score);
+  function rankPaint(ctx, row, x, w) {
+    if (scoreRankLabel(row, row?.highScore) !== "极") return SCORE_RANK_COLORS[scoreRankLabel(row, row?.highScore)] || SCORE_RANK_COLORS["无评价"];
     const gradient = ctx.createLinearGradient(x, 0, x + w, 0);
     gradient.addColorStop(0, "#e03131");
     gradient.addColorStop(0.18, "#f08c00");
@@ -324,7 +340,7 @@
 
   function drawHeader(ctx, classic, ura, matchedCount) {
     drawText(ctx, "Taiko Rating", 96, 116, { size: 42, weight: "700", color: "#202225" });
-    drawText(ctx, "表 rating 固定除以 B20，里 rating 仅过关且固定除以 B30", 98, 156, { size: 22, color: "#7b7470" });
+    drawText(ctx, "表 rating 固定除以 B20，里 rating 仅 clear_cnt > 0 且固定除以 B30", 98, 156, { size: 22, color: "#7b7470" });
 
     fillRounded(ctx, 96, 210, 470, 142, 8, "#fff7f4", "#e6d7d1");
     drawText(ctx, "表 Rating", 126, 260, { size: 27, weight: "700", color: "#a23b35" });
@@ -450,10 +466,10 @@
       size: 13,
       color: "#7b7470",
     });
-    drawText(ctx, rankLabel(row.highScore), x + w - 12, y + 28, {
+    drawText(ctx, scoreRankLabel(row, row.highScore), x + w - 12, y + 28, {
       size: 14,
       weight: "700",
-      color: rankPaint(ctx, row.highScore, x + w - 82, 64),
+      color: rankPaint(ctx, row, x + w - 82, 64),
       align: "right",
       baseline: "middle",
     });
@@ -474,7 +490,7 @@
     drawHeader(ctx, classic, ura, classicRows.length);
     drawRadar(ctx, classic.dimensions);
     drawSection(ctx, "表 Rating B20", "旧社区公式：定数得点 x 良率表现，固定除以 20", classic.b20, 730, "classic");
-    drawSection(ctx, "里 Rating B30", "仅过关成绩：谱面定数 + 分数补正，固定除以 30", ura.b30, 1280, "new");
+    drawSection(ctx, "里 Rating B30", "仅 clear_cnt > 0：谱面定数 + 分数补正，固定除以 30", ura.b30, 1280, "new");
     drawText(ctx, "Taiko Rating System | 由菌菌成绩与本地谱面库生成", IMAGE_W / 2, IMAGE_H - 74, {
       size: 22,
       color: "#aaa19b",
