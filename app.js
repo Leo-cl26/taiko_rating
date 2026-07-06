@@ -1,5 +1,6 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260706-alias-dedupe";
+const DATA_VERSION = "20260706-feedback-worker";
+const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
@@ -30,6 +31,17 @@ const FIELD_DEFS = [
   { key: "roll_time", label: "连打时长", type: "text" },
   { key: "balloon_num", label: "气球数", type: "number" },
   { key: "source", label: "来源", type: "text" },
+];
+
+const FEEDBACK_FIELDS = [
+  { key: "const", label: "定数", path: "const" },
+  { key: "complex", label: "复合处理", path: "features.complex" },
+  { key: "avg_density", label: "平均密度", path: "features.avg_density" },
+  { key: "peak_density", label: "瞬间密度", path: "features.peak_density" },
+  { key: "note_type", label: "咚咔复杂度", path: "features.note_type" },
+  { key: "bpm_change", label: "BPM变化", path: "features.bpm_change" },
+  { key: "hs_change", label: "HS变化", path: "features.hs_change" },
+  { key: "rhythm", label: "节奏处理", path: "features.rhythm" },
 ];
 
 const FILTER_OPS = [
@@ -65,6 +77,7 @@ const state = {
   localPreviewError: "",
   exportImageUrl: "",
   chartPreviewPlayer: null,
+  feedbackSummaries: new Map(),
 };
 
 const els = {
@@ -310,6 +323,137 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function getFeedbackClientId() {
+  const key = "taiko_rating_feedback_client_id";
+  let value = localStorage.getItem(key);
+  if (!value) {
+    const random = new Uint8Array(16);
+    crypto.getRandomValues(random);
+    value = [...random].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+function getPathValue(object, path) {
+  return String(path)
+    .split(".")
+    .reduce((current, key) => (current && current[key] != null ? current[key] : null), object);
+}
+
+function feedbackSummaryKey(chart) {
+  return chart?.id || "";
+}
+
+function feedbackVoteLabel(vote) {
+  if (vote === "too_high") return "偏高";
+  if (vote === "too_low") return "偏低";
+  return "";
+}
+
+function renderFeedbackSection(chart) {
+  if (!isEstimatedSource(chart)) {
+    return "";
+  }
+  const configured = Boolean(FEEDBACK_API_BASE);
+  return `
+    <section class="modal-section feedback-section" data-feedback-chart-id="${escapeHtml(chart.id)}">
+      <div class="feedback-head">
+        <h3>神经网络数据反馈</h3>
+        <span data-feedback-status>${configured ? "读取反馈中" : "反馈服务尚未配置"}</span>
+      </div>
+      <div class="feedback-grid">
+        ${FEEDBACK_FIELDS.map((field) => {
+          const value = getPathValue(chart, field.path);
+          return `
+            <div class="feedback-row" data-feedback-field="${field.key}">
+              <div>
+                <strong>${escapeHtml(field.label)}</strong>
+                <span>当前值 ${escapeHtml(formatLoose(value))}</span>
+              </div>
+              <div class="feedback-buttons">
+                <button type="button" data-feedback-vote="too_high" ${configured ? "" : "disabled"}>偏高</button>
+                <button type="button" data-feedback-vote="too_low" ${configured ? "" : "disabled"}>偏低</button>
+              </div>
+              <span class="feedback-counts" data-feedback-counts>暂无反馈</span>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function applyFeedbackSummary(chart, payload) {
+  const section = els.chartModalBody.querySelector(`[data-feedback-chart-id="${CSS.escape(chart.id)}"]`);
+  if (!section) return;
+  const summary = payload?.summary || {};
+  const mine = payload?.mine || {};
+  for (const row of section.querySelectorAll("[data-feedback-field]")) {
+    const field = row.dataset.feedbackField;
+    const counts = summary[field] || {};
+    const high = Number(counts.too_high || 0);
+    const low = Number(counts.too_low || 0);
+    const countsEl = row.querySelector("[data-feedback-counts]");
+    if (countsEl) countsEl.textContent = high || low ? `偏高 ${high} / 偏低 ${low}` : "暂无反馈";
+    for (const button of row.querySelectorAll("[data-feedback-vote]")) {
+      const voted = mine[field] === button.dataset.feedbackVote;
+      button.classList.toggle("is-selected", voted);
+      button.textContent = voted ? `已投${feedbackVoteLabel(button.dataset.feedbackVote)}` : feedbackVoteLabel(button.dataset.feedbackVote);
+    }
+  }
+  const status = section.querySelector("[data-feedback-status]");
+  if (status) status.textContent = "反馈已同步";
+}
+
+async function loadFeedbackSummary(chart) {
+  if (!FEEDBACK_API_BASE || !isEstimatedSource(chart)) return;
+  const section = els.chartModalBody.querySelector(`[data-feedback-chart-id="${CSS.escape(chart.id)}"]`);
+  try {
+    const url = new URL(`${FEEDBACK_API_BASE.replace(/\/$/, "")}/summary`);
+    url.searchParams.set("chart_id", chart.id);
+    url.searchParams.set("client_id", getFeedbackClientId());
+    const resp = await fetch(url);
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    state.feedbackSummaries.set(feedbackSummaryKey(chart), payload);
+    applyFeedbackSummary(chart, payload);
+  } catch (err) {
+    const status = section?.querySelector("[data-feedback-status]");
+    if (status) status.textContent = err instanceof Error ? `反馈读取失败：${err.message}` : "反馈读取失败";
+  }
+}
+
+async function submitFeedbackVote(chart, field, vote) {
+  if (!FEEDBACK_API_BASE || !chart || !field || !vote) return;
+  const section = els.chartModalBody.querySelector(`[data-feedback-chart-id="${CSS.escape(chart.id)}"]`);
+  const status = section?.querySelector("[data-feedback-status]");
+  if (status) status.textContent = "提交中";
+  const fieldDef = FEEDBACK_FIELDS.find((item) => item.key === field);
+  try {
+    const resp = await fetch(`${FEEDBACK_API_BASE.replace(/\/$/, "")}/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chart_id: chart.id,
+        title: chartTitle(chart),
+        course: chart.course_label || chart.course,
+        source: sourceLabel(chart.source, chart.needs_encoder),
+        field,
+        vote,
+        current_value: fieldDef ? Number(getPathValue(chart, fieldDef.path)) : null,
+        client_id: getFeedbackClientId(),
+      }),
+    });
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+    state.feedbackSummaries.set(feedbackSummaryKey(chart), payload);
+    applyFeedbackSummary(chart, payload);
+  } catch (err) {
+    if (status) status.textContent = err instanceof Error ? `提交失败：${err.message}` : "提交失败";
+  }
+}
+
 function cleanDisplayTitle(value) {
   return String(value || "").replace(/\s+·\s+\d{2}\s+[^·]+$/u, "").trim();
 }
@@ -320,6 +464,10 @@ function chartTitle(chart) {
 
 function getLocalPreview(chart) {
   return state.localPreviews.get(chart?.id) || null;
+}
+
+function findChartById(id) {
+  return state.chartData.find((chart) => chart.id === id) || null;
 }
 
 function indexChartData(charts) {
@@ -2005,6 +2153,7 @@ function renderChartModalBody(chart) {
         .map(([label, value]) => `<div class="detail-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
         .join("")}</div>
     </section>
+    ${renderFeedbackSection(chart)}
   `;
 }
 
@@ -2020,6 +2169,7 @@ function openChartModal(chart) {
   els.chartModal.hidden = false;
   syncModalOpenClass();
   mountChartPreviewPlayer(chart);
+  loadFeedbackSummary(chart);
   els.chartModalClose?.focus();
 }
 
@@ -2284,6 +2434,16 @@ els.chartTableBody.addEventListener("click", (event) => {
   state.selectedChartIndex = Number(row.dataset.chartIndex);
   renderChartBrowser();
   openChartModal(state.chartBrowserRows[state.selectedChartIndex]);
+});
+
+els.chartModalBody?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-feedback-vote]");
+  if (!button || button.disabled) return;
+  const section = button.closest("[data-feedback-chart-id]");
+  const row = button.closest("[data-feedback-field]");
+  const chart = findChartById(section?.dataset.feedbackChartId);
+  if (!chart || !row) return;
+  submitFeedbackVote(chart, row.dataset.feedbackField, button.dataset.feedbackVote);
 });
 
 els.recommendTableBody?.addEventListener("click", (event) => {

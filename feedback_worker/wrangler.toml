@@ -1,0 +1,10 @@
+name = "taiko-rating-feedback"
+main = "src/index.js"
+compatibility_date = "2026-07-06"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "taiko-rating-feedback"
+database_id = "c22953df-3562-4439-bbfa-90d61ed1c4e7"
