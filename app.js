@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260706-score-rank";
+const DATA_VERSION = "20260706-preview-player-balloon";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
 
@@ -61,6 +61,7 @@ const state = {
   localPreviewSummary: null,
   localPreviewError: "",
   exportImageUrl: "",
+  chartPreviewPlayer: null,
 };
 
 const els = {
@@ -990,6 +991,565 @@ function renderChartBrowser() {
     .join("");
 }
 
+function formatTimecode(seconds) {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const minutes = Math.floor(safe / 60);
+  const secs = Math.floor(safe % 60);
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function parseBalloonCounts(chart) {
+  const text = String(chart?.ese?.balloon_declared ?? chart?.balloon_declared ?? "");
+  return text
+    .split(/[,\s/;|]+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function buildChartPreviewTimeline(preview, chart) {
+  const measures = Array.isArray(preview?.measures) ? preview.measures : [];
+  const bpm = Number(chart?.bpm) > 0 ? Number(chart.bpm) : 120;
+  const measureDuration = (60 / bpm) * 4;
+  const timings = Array.isArray(preview?.measure_timings) ? preview.measure_timings : null;
+  const segmentTimings = preview?.segment_timings && typeof preview.segment_timings === "object" ? preview.segment_timings : {};
+  const events = [];
+  const measureLines = [];
+  const visualSegments = [];
+  const balloonCounts = parseBalloonCounts(chart);
+  let balloonIndex = 0;
+  let time = 0;
+  let visual = 0;
+
+  const addVisualSegment = (segment) => {
+    const startTime = Number(segment[2] ?? 0);
+    const startVisual = Number(segment[3] ?? 0);
+    const duration = Math.max(0, Number(segment[4] ?? 0));
+    const visualDuration = Number(segment[5] ?? 0);
+    visualSegments.push({ time: startTime, visual: startVisual, duration, visualDuration });
+  };
+
+  const addNoteEvents = (chars, measureIndex, segment) => {
+    const startIndex = Math.max(0, Number(segment[0] ?? 0));
+    const endIndex = Math.min(chars.length, Number(segment[1] ?? chars.length));
+    const startTime = Number(segment[2] ?? 0);
+    const startVisual = Number(segment[3] ?? 0);
+    const duration = Math.max(0, Number(segment[4] ?? 0));
+    const visualDuration = Number(segment[5] ?? 0);
+    const length = Math.max(1, endIndex - startIndex);
+    for (let noteIndex = startIndex; noteIndex < endIndex; noteIndex += 1) {
+      const type = chars[noteIndex];
+      if (type === "0") continue;
+      const ratio = (noteIndex - startIndex) / length;
+      const isBalloon = type === "7" || type === "9";
+      events.push({
+        type,
+        time: startTime + duration * ratio,
+        visual: startVisual + visualDuration * ratio,
+        measure: measureIndex + 1,
+        bpm: Number(segment[6] ?? bpm),
+        scroll: Number(segment[7] ?? 1),
+        balloonCount: isBalloon ? (balloonCounts[balloonIndex++] ?? null) : null,
+      });
+    }
+  };
+
+  measures.forEach((measure, measureIndex) => {
+    const chars = String(measure || "0").split("");
+    const timing = timings?.[measureIndex];
+    if (Array.isArray(timing)) {
+      const measureTime = Number(timing[0] ?? time);
+      const measureVisual = Number(timing[1] ?? visual);
+      const duration = Number(timing[2] ?? measureDuration);
+      const visualDuration = Number(timing[3] ?? 4);
+      const barline = Number(timing[6] ?? 1) !== 0;
+      measureLines.push({
+        time: measureTime,
+        visual: measureVisual,
+        index: measureIndex + 1,
+        barline,
+        bpm: Number(timing[4] ?? bpm),
+        scroll: Number(timing[5] ?? 1),
+      });
+      const segments = Array.isArray(segmentTimings[String(measureIndex)])
+        ? segmentTimings[String(measureIndex)]
+        : [[0, chars.length, measureTime, measureVisual, duration, visualDuration, Number(timing[4] ?? bpm), Number(timing[5] ?? 1)]];
+      for (const segment of segments) {
+        addVisualSegment(segment);
+        addNoteEvents(chars, measureIndex, segment);
+      }
+      time = measureTime + duration;
+      visual = measureVisual + visualDuration;
+      return;
+    }
+
+    const resolution = Math.max(1, chars.length);
+    measureLines.push({ time, visual, index: measureIndex + 1, barline: true, bpm, scroll: 1 });
+    const fallbackSegment = [0, chars.length, time, visual, measureDuration, 4, bpm, 1];
+    addVisualSegment(fallbackSegment);
+    addNoteEvents(chars, measureIndex, fallbackSegment);
+    time += measureDuration;
+    visual += 4;
+  });
+  measureLines.push({ time, visual, index: measures.length + 1, barline: true, bpm, scroll: 1 });
+  visualSegments.sort((a, b) => a.time - b.time || a.visual - b.visual);
+
+  const rolls = [];
+  let openRoll = null;
+  for (const event of events) {
+    if (event.type === "5" || event.type === "6" || event.type === "7" || event.type === "9") {
+      if (openRoll) {
+        rolls.push({
+          ...openRoll,
+          endTime: event.time,
+          endVisual: event.visual,
+          endBpm: event.bpm,
+          endScroll: event.scroll,
+        });
+      }
+      openRoll = {
+        type: event.type,
+        startTime: event.time,
+        startVisual: event.visual,
+        bpm: event.bpm,
+        scroll: event.scroll,
+        balloonCount: event.balloonCount,
+      };
+    } else if (event.type === "8" && openRoll) {
+      rolls.push({
+        ...openRoll,
+        endTime: Math.max(event.time, openRoll.startTime),
+        endVisual: Math.max(event.visual, openRoll.startVisual),
+        endBpm: event.bpm,
+        endScroll: event.scroll,
+      });
+      openRoll = null;
+    }
+  }
+  if (openRoll) {
+    rolls.push({
+      ...openRoll,
+      endTime: Math.min(time, openRoll.startTime + measureDuration * 2),
+      endVisual: openRoll.startVisual + 4,
+      endBpm: openRoll.bpm,
+      endScroll: openRoll.scroll,
+    });
+  }
+
+  const visualAt = (seconds) => {
+    const target = Number(seconds) || 0;
+    let previous = visualSegments[0] || { time: 0, visual: 0, duration: 1, visualDuration: 0 };
+    for (const segment of visualSegments) {
+      if (target < segment.time) break;
+      const end = segment.time + segment.duration;
+      if (target <= end) {
+        const ratio = segment.duration > 0 ? (target - segment.time) / segment.duration : 1;
+        return segment.visual + segment.visualDuration * clamp(ratio, 0, 1);
+      }
+      previous = segment;
+    }
+    return previous.visual + previous.visualDuration;
+  };
+
+  const summary = preview?.timing_summary || {};
+
+  return {
+    bpm,
+    events,
+    measureLines,
+    rolls,
+    totalTime: Math.max(time, 1),
+    totalVisual: Math.max(visual, 1),
+    visualAt,
+    timingSummary: summary,
+    noteCount: Number(preview?.note_count || 0),
+    measureCount: measures.length,
+    scrollChangeCount: Number(summary.scroll_change_count || 0),
+    bpmChangeCount: Number(summary.bpm_change_count || 0),
+  };
+}
+
+function roundedCanvasRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, width, height, r);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+}
+
+function drawCanvasNote(ctx, type, x, y, scale = 1, balloonCount = null) {
+  const value = String(type);
+  const radius = value === "3" || value === "4" || value === "6" || value === "7" || value === "9" ? 15 * scale : 11 * scale;
+  if (value === "1" || value === "3") {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#e5484d";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8f1f24";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x - radius * 0.25, y - radius * 0.28, radius * 0.28, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.42)";
+    ctx.fill();
+    return;
+  }
+  if (value === "2" || value === "4") {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#3584e4";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#174d8d";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x - radius * 0.25, y - radius * 0.28, radius * 0.28, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.42)";
+    ctx.fill();
+    return;
+  }
+  if (value === "5" || value === "6") {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#f0b429";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#9f6b00";
+    ctx.stroke();
+    return;
+  }
+  if (value === "7" || value === "9") {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#f2c94c";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#9f6b00";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x - radius * 0.25, y - radius * 0.28, radius * 0.26, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.38)";
+    ctx.fill();
+    if (Number.isFinite(Number(balloonCount)) && Number(balloonCount) > 0) {
+      const label = String(Math.round(Number(balloonCount)));
+      const fontSize = label.length >= 3 ? 9 : label.length === 2 ? 11 : 12;
+      ctx.save();
+      ctx.fillStyle = "#4d3200";
+      ctx.font = `700 ${Math.max(7, fontSize * scale)}px "Microsoft YaHei", "Segoe UI", Arial, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, x, y + 0.5 * scale);
+      ctx.restore();
+    }
+    return;
+  }
+  if (value === "8") {
+    ctx.beginPath();
+    ctx.moveTo(x, y - 12 * scale);
+    ctx.lineTo(x + 12 * scale, y);
+    ctx.lineTo(x, y + 12 * scale);
+    ctx.lineTo(x - 12 * scale, y);
+    ctx.closePath();
+    ctx.fillStyle = "#3d4650";
+    ctx.fill();
+    return;
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, 8 * scale, 0, Math.PI * 2);
+  ctx.fillStyle = "#7a8490";
+  ctx.fill();
+}
+
+function drawChartPreviewFrame(player) {
+  const { ctx, width, height, timeline, chart } = player;
+  const current = player.currentTime;
+  const laneY = Math.round(height * 0.56);
+  const judgeX = Math.max(112, Math.round(width * 0.16));
+  const spawnX = width + 68;
+  const baseSpeed = (spawnX - judgeX) / player.baseLeadTime;
+  const speedFactor = (item) => {
+    const itemBpm = Number(item?.bpm);
+    const itemScroll = Number(item?.scroll);
+    const bpmFactor = Number.isFinite(itemBpm) && itemBpm > 0 ? itemBpm / player.baseBpm : 1;
+    const scrollFactor = Number.isFinite(itemScroll) ? Math.max(0.02, Math.abs(itemScroll)) : 1;
+    return bpmFactor * scrollFactor;
+  };
+  const xAt = (item, timeKey = "time") => judgeX + (Number(item?.[timeKey] ?? 0) - current) * baseSpeed * speedFactor(item);
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f6f8fb";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(14, 14, width - 28, height - 28);
+  ctx.strokeStyle = "#d9dee5";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(14, 14, width - 28, height - 28);
+
+  ctx.fillStyle = "#20252b";
+  ctx.font = "700 18px 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif";
+  ctx.fillText(truncateText(chart.display_title || chart.title || "Taiko chart", width < 640 ? 24 : 42), 28, 42);
+  ctx.fillStyle = "#66717d";
+  ctx.font = "13px 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif";
+  ctx.fillText(
+    `${chart.course_label || chart.course || ""} ★${formatLoose(chart.level, 0)}  BPM ${formatLoose(timeline.bpm, 0)}  ${timeline.measureCount} 小节  HS变化 ${timeline.scrollChangeCount}  BPM变化 ${timeline.bpmChangeCount}`,
+    28,
+    64,
+  );
+
+  ctx.fillStyle = "#fff8ea";
+  ctx.fillRect(judgeX, laneY - 32, width - judgeX - 24, 64);
+  ctx.strokeStyle = "#d8c7a5";
+  ctx.strokeRect(judgeX, laneY - 32, width - judgeX - 24, 64);
+  ctx.beginPath();
+  ctx.moveTo(judgeX, laneY);
+  ctx.lineTo(width - 24, laneY);
+  ctx.strokeStyle = "#b9c5cf";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  for (const lineInfo of timeline.measureLines) {
+    if (!lineInfo.barline) continue;
+    const x = xAt(lineInfo);
+    if (x < judgeX - 80 || x > spawnX + 80) continue;
+    ctx.beginPath();
+    ctx.moveTo(x, laneY - 35);
+    ctx.lineTo(x, laneY + 35);
+    ctx.strokeStyle = lineInfo.index % 4 === 1 ? "rgba(36,111,146,0.38)" : "rgba(102,113,125,0.22)";
+    ctx.lineWidth = lineInfo.index % 4 === 1 ? 2 : 1;
+    ctx.stroke();
+    if (lineInfo.index % 8 === 1) {
+      ctx.fillStyle = "#7b8794";
+      ctx.font = "11px 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif";
+      ctx.fillText(String(lineInfo.index), x + 4, laneY - 42);
+    }
+  }
+
+  for (const roll of timeline.rolls) {
+    const x1 = xAt(roll, "startTime");
+    const x2 = xAt(
+      {
+        time: roll.endTime,
+        bpm: roll.endBpm ?? roll.bpm,
+        scroll: roll.endScroll ?? roll.scroll,
+      },
+    );
+    const left = Math.max(judgeX - 12, Math.min(x1, x2));
+    const right = Math.min(width - 24, Math.max(x1, x2));
+    if (right <= judgeX - 12 || left >= width - 24) continue;
+    ctx.beginPath();
+    roundedCanvasRect(ctx, left, laneY - 12, Math.max(1, right - left), 24, 12);
+    ctx.fillStyle = "rgba(240,180,41,0.36)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(159,107,0,0.58)";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.arc(judgeX, laneY, 24, 0, Math.PI * 2);
+  ctx.fillStyle = "#f7fafc";
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#20252b";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(judgeX, laneY, 13, 0, Math.PI * 2);
+  ctx.strokeStyle = "#c84632";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  for (const event of timeline.events) {
+    const x = xAt(event);
+    if (x < judgeX - 48 || x > width + 48) continue;
+    const age = current - event.time;
+    const scale = age > 0 ? Math.max(0.72, 1 - age * 0.7) : 1;
+    ctx.globalAlpha = age > 0 ? Math.max(0.2, 1 - age * 1.8) : 1;
+    drawCanvasNote(ctx, event.type, x, laneY, scale, event.balloonCount);
+    ctx.globalAlpha = 1;
+  }
+
+  const barX = 28;
+  const barY = height - 34;
+  const barW = width - 56;
+  ctx.fillStyle = "#e7edf3";
+  ctx.fillRect(barX, barY, barW, 6);
+  ctx.fillStyle = "#246f92";
+  ctx.fillRect(barX, barY, barW * clamp(current / timeline.totalTime, 0, 1), 6);
+}
+
+function updateChartPreviewControls(player) {
+  if (!player) return;
+  player.playButton.textContent = player.playing ? "暂停" : "播放";
+  player.progress.value = String(Math.round((player.currentTime / player.timeline.totalTime) * 1000));
+  player.timeLabel.textContent = `${formatTimecode(player.currentTime)} / ${formatTimecode(player.timeline.totalTime)}`;
+}
+
+function setChartPreviewTime(player, seconds) {
+  player.currentTime = clamp(Number(seconds) || 0, 0, player.timeline.totalTime);
+  updateChartPreviewControls(player);
+  drawChartPreviewFrame(player);
+}
+
+function stopChartPreviewPlayer(player) {
+  if (!player) return;
+  player.playing = false;
+  if (player.animationFrame) cancelAnimationFrame(player.animationFrame);
+  player.animationFrame = null;
+  player.lastFrameAt = null;
+  updateChartPreviewControls(player);
+}
+
+function startChartPreviewPlayer(player) {
+  if (!player || player.playing) return;
+  if (player.currentTime >= player.timeline.totalTime) setChartPreviewTime(player, 0);
+  player.playing = true;
+  player.lastFrameAt = null;
+  updateChartPreviewControls(player);
+  const step = (timestamp) => {
+    if (!player.playing) return;
+    if (player.lastFrameAt != null) {
+      const delta = ((timestamp - player.lastFrameAt) / 1000) * player.speed;
+      player.currentTime = Math.min(player.timeline.totalTime, player.currentTime + delta);
+    }
+    player.lastFrameAt = timestamp;
+    updateChartPreviewControls(player);
+    drawChartPreviewFrame(player);
+    if (player.currentTime >= player.timeline.totalTime) {
+      stopChartPreviewPlayer(player);
+      return;
+    }
+    player.animationFrame = requestAnimationFrame(step);
+  };
+  player.animationFrame = requestAnimationFrame(step);
+}
+
+function destroyChartPreviewPlayer() {
+  const player = state.chartPreviewPlayer;
+  if (!player) return;
+  stopChartPreviewPlayer(player);
+  player.cleanup?.();
+  state.chartPreviewPlayer = null;
+}
+
+function mountChartPreviewPlayer(chart) {
+  destroyChartPreviewPlayer();
+  const preview = getLocalPreview(chart);
+  const root = els.chartModalBody.querySelector("[data-chart-player]");
+  if (!preview || !root) return;
+
+  const canvas = root.querySelector("[data-chart-canvas]");
+  const playButton = root.querySelector("[data-chart-play]");
+  const resetButton = root.querySelector("[data-chart-reset]");
+  const progress = root.querySelector("[data-chart-progress]");
+  const speedInput = root.querySelector("[data-chart-speed]");
+  const timeLabel = root.querySelector("[data-chart-time]");
+  const ctx = canvas?.getContext("2d");
+  if (!canvas || !ctx || !playButton || !resetButton || !progress || !speedInput || !timeLabel) return;
+
+  const player = {
+    chart,
+    canvas,
+    ctx,
+    playButton,
+    resetButton,
+    progress,
+    speedInput,
+    timeLabel,
+    timeline: buildChartPreviewTimeline(preview, chart),
+    currentTime: 0,
+    speed: Number(speedInput.value) || 1,
+    playing: false,
+    animationFrame: null,
+    lastFrameAt: null,
+    baseLeadTime: 2.2,
+    baseBpm: 180,
+    width: 960,
+    height: 260,
+    cleanup: null,
+  };
+
+  const resize = () => {
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(320, Math.round(rect.width || 960));
+    const height = Math.max(220, Math.round(rect.height || 260));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      player.width = width;
+      player.height = height;
+    }
+    drawChartPreviewFrame(player);
+  };
+
+  const toggle = () => {
+    if (player.playing) stopChartPreviewPlayer(player);
+    else startChartPreviewPlayer(player);
+  };
+  const reset = () => {
+    stopChartPreviewPlayer(player);
+    setChartPreviewTime(player, 0);
+  };
+  const scrub = () => {
+    setChartPreviewTime(player, (Number(progress.value) / 1000) * player.timeline.totalTime);
+  };
+  const setSpeed = () => {
+    player.speed = Number(speedInput.value) || 1;
+  };
+
+  playButton.addEventListener("click", toggle);
+  resetButton.addEventListener("click", reset);
+  progress.addEventListener("input", scrub);
+  speedInput.addEventListener("change", setSpeed);
+  window.addEventListener("resize", resize);
+  player.cleanup = () => {
+    playButton.removeEventListener("click", toggle);
+    resetButton.removeEventListener("click", reset);
+    progress.removeEventListener("input", scrub);
+    speedInput.removeEventListener("change", setSpeed);
+    window.removeEventListener("resize", resize);
+  };
+
+  state.chartPreviewPlayer = player;
+  resize();
+  updateChartPreviewControls(player);
+}
+
+function renderChartPreviewPlayer(preview, chart) {
+  if (!preview) return "";
+  const count = `${preview.shown_measure_count || 0}/${preview.measure_count || 0} 小节`;
+  const timing = preview.timing_summary || {};
+  const timingText = `HS ${timing.scroll_change_count || 0} / BPM ${timing.bpm_change_count || 0}`;
+  return `
+    <figure class="preview-figure chart-player-figure">
+      <div class="chart-player" data-chart-player>
+        <canvas class="chart-player-canvas" data-chart-canvas aria-label="${escapeHtml(chart.display_title || chart.title)} 动态谱面预览"></canvas>
+        <div class="chart-player-controls">
+          <button type="button" data-chart-play>播放</button>
+          <input data-chart-progress type="range" min="0" max="1000" value="0" aria-label="播放进度" />
+          <span class="chart-player-time" data-chart-time>0:00 / 0:00</span>
+          <select data-chart-speed aria-label="播放速度">
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+          </select>
+          <button type="button" data-chart-reset>重置</button>
+        </div>
+      </div>
+      <figcaption>
+        <span>本地 TJA 动态预览</span>
+        <span>${escapeHtml(`${count} · ${timingText}`)}</span>
+      </figcaption>
+    </figure>
+  `;
+}
+
 function previewNoteSvg(note, x, y) {
   const value = String(note);
   const common = `cx="${x.toFixed(1)}" cy="${y.toFixed(1)}"`;
@@ -1000,8 +1560,8 @@ function previewNoteSvg(note, x, y) {
   if (value === "5" || value === "6") {
     return `<rect x="${(x - 7).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="14" height="14" rx="7" fill="#f0b429" stroke="#9f6b00" stroke-width="1.2" />`;
   }
-  if (value === "7") {
-    return `<rect x="${(x - 8).toFixed(1)}" y="${(y - 8).toFixed(1)}" width="16" height="16" rx="5" fill="#9b5de5" stroke="#58309a" stroke-width="1.2" />`;
+  if (value === "7" || value === "9") {
+    return `<circle ${common} r="8.8" fill="#f2c94c" stroke="#9f6b00" stroke-width="1.4" />`;
   }
   if (value === "8") {
     return `<path d="M ${x.toFixed(1)} ${(y - 7).toFixed(1)} L ${(x + 7).toFixed(1)} ${y.toFixed(1)} L ${x.toFixed(1)} ${(y + 7).toFixed(1)} L ${(x - 7).toFixed(1)} ${y.toFixed(1)} Z" fill="#3d4650" />`;
@@ -1067,15 +1627,7 @@ function renderLocalPreviewSvg(preview, chart) {
 function renderPreviewImages(chart) {
   const localPreview = getLocalPreview(chart);
   if (localPreview) {
-    return `
-      <figure class="preview-figure local-preview-figure">
-        <div class="local-preview-frame">${renderLocalPreviewSvg(localPreview, chart)}</div>
-        <figcaption>
-          <span>本地谱面生成</span>
-          <span>${escapeHtml(`${localPreview.shown_measure_count || 0}/${localPreview.measure_count || 0} 小节`)}</span>
-        </figcaption>
-      </figure>
-    `;
+    return renderChartPreviewPlayer(localPreview, chart);
   }
   const images = Array.isArray(chart.preview_images) ? chart.preview_images.slice(0, 2) : [];
   if (!images.length) {
@@ -1111,6 +1663,7 @@ function renderPreviewImages(chart) {
 function renderChartModalBody(chart) {
   const f = chart.features || {};
   const localPreview = getLocalPreview(chart);
+  const timing = localPreview?.timing_summary || {};
   const items = [
     ["曲名", chart.display_title || chart.title],
     ["原曲名", chart.title],
@@ -1132,8 +1685,11 @@ function renderChartModalBody(chart) {
     ["Rating计入", chart.rating_excluded ? "不计入" : "计入"],
     ["排除原因", chart.rating_exclusion_reason || "--"],
     ["重名组", chart.duplicate_group_size > 1 ? `${chart.duplicate_index}/${chart.duplicate_group_size}` : "--"],
-    ["预览来源", localPreview ? "本地 TJA 谱面生成" : "--"],
+    ["预览来源", localPreview ? "本地 TJA 动态预览" : "--"],
     ["预览小节", localPreview ? `${localPreview.shown_measure_count}/${localPreview.measure_count}` : "--"],
+    ["预览HS事件", localPreview ? formatLoose(timing.scroll_change_count, 0) : "--"],
+    ["预览BPM事件", localPreview ? formatLoose(timing.bpm_change_count, 0) : "--"],
+    ["预览延迟", localPreview ? `${formatLoose(timing.total_delay)}秒` : "--"],
     ["网站", chart.fumen?.url || "--"],
   ];
   return `
@@ -1161,11 +1717,13 @@ function openChartModal(chart) {
   els.chartModalBody.innerHTML = renderChartModalBody(chart);
   els.chartModal.hidden = false;
   syncModalOpenClass();
+  mountChartPreviewPlayer(chart);
   els.chartModalClose?.focus();
 }
 
 function closeChartModal() {
   if (!els.chartModal || els.chartModal.hidden) return;
+  destroyChartPreviewPlayer();
   els.chartModal.hidden = true;
   els.chartModalBody.innerHTML = "";
   syncModalOpenClass();

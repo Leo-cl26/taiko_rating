@@ -584,6 +584,53 @@ body.modal-open {
   height: auto;
 }
 
+.chart-player-figure {
+  grid-column: 1 / -1;
+}
+
+.chart-player {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #f7f8fa;
+}
+
+.chart-player-canvas {
+  display: block;
+  width: 100%;
+  height: 260px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.chart-player-controls {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.chart-player-controls button,
+.chart-player-controls select {
+  min-height: 34px;
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.chart-player-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--blue);
+}
+
+.chart-player-time {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .preview-figure figcaption {
   display: flex;
   justify-content: space-between;
@@ -717,6 +764,19 @@ body.modal-open {
 
   .local-preview-svg {
     min-width: 720px;
+  }
+
+  .chart-player-canvas {
+    height: 230px;
+  }
+
+  .chart-player-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .chart-player-controls input[type="range"],
+  .chart-player-time {
+    grid-column: 1 / -1;
   }
 
   .modal-backdrop {
