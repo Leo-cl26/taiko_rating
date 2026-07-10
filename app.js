@@ -59,6 +59,7 @@ const FILTER_OPS = [
 const state = {
   records: [],
   chartData: [],
+  primaryConstantsByTitle: new Map(),
   constantsByTitle: new Map(),
   rated: [],
   uraRated: [],
@@ -458,6 +459,7 @@ function findChartById(id) {
 }
 
 function indexChartData(charts) {
+  state.primaryConstantsByTitle.clear();
   state.constantsByTitle.clear();
   for (const chart of charts) {
     if (!chartUsableForRating(chart)) continue;
@@ -472,16 +474,17 @@ function indexChartData(charts) {
       needs_encoder: Boolean(chart.needs_encoder),
       raw: chart,
     };
-    const names = [chart.title, ...(chart.aliases || [])].filter(Boolean);
-    for (const name of names) {
-      const key = titleKey(name, scoreLevel);
-      if (!state.constantsByTitle.has(key)) {
-        state.constantsByTitle.set(key, []);
+    const addToIndex = (index, names) => {
+      for (const name of names.filter(Boolean)) {
+        const key = titleKey(name, scoreLevel);
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(indexed);
       }
-      state.constantsByTitle.get(key).push(indexed);
-    }
+    };
+    addToIndex(state.primaryConstantsByTitle, [chart.title, chart.display_title]);
+    addToIndex(state.constantsByTitle, chart.aliases || []);
   }
-  for (const chartsForTitle of state.constantsByTitle.values()) {
+  for (const chartsForTitle of [...state.primaryConstantsByTitle.values(), ...state.constantsByTitle.values()]) {
     chartsForTitle.sort((a, b) => {
       const sourceDiff = sourcePriority(b.source) - sourcePriority(a.source);
       if (sourceDiff) return sourceDiff;
@@ -539,7 +542,8 @@ function pickChartCandidate(candidates, record) {
   let bestScore = Number.NEGATIVE_INFINITY;
   for (const chart of candidates) {
     const chartCombo = Number(chart.combo);
-    const recordCombo = Number(record.combo);
+    const judgmentNotes = Number(record.good || 0) + Number(record.ok || 0) + Number(record.ng || 0);
+    const recordCombo = judgmentNotes || Number(record.combo);
     let score = sourcePriority(chart.source) * 10000;
     if (Number.isFinite(chartCombo) && Number.isFinite(recordCombo) && recordCombo > 0) {
       if (chartCombo >= recordCombo) {
@@ -566,9 +570,11 @@ function findChart(record) {
     record.titleCn,
     ...(record.aliases || []),
   ].filter(Boolean);
-  for (const title of titleCandidates) {
-    const chart = pickChartCandidate(state.constantsByTitle.get(titleKey(title, record.level)), record);
-    if (chart) return chart;
+  for (const index of [state.primaryConstantsByTitle, state.constantsByTitle]) {
+    for (const title of titleCandidates) {
+      const chart = pickChartCandidate(index.get(titleKey(title, record.level)), record);
+      if (chart) return chart;
+    }
   }
   return null;
 }

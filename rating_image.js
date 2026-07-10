@@ -100,7 +100,8 @@
   }
 
   function averageTop(values, count = CLASSIC_BEST_COUNT) {
-    return fixedAverage([...values].filter(Number.isFinite).sort((a, b) => b - a).slice(0, count), count);
+    const top = [...values].filter(Number.isFinite).sort((a, b) => b - a).slice(0, count);
+    return fixedAverage(top, top.length);
   }
 
   function calculateClassicAggregate(values, metric) {
@@ -144,12 +145,16 @@
     return anchors[anchors.length - 1][1];
   }
 
-  function accuracyY(goodRate) {
-    const g = Number(goodRate);
-    if (!Number.isFinite(g) || g < 0.5) return null;
-    if (g <= 0.6832) return 4425 * Math.pow(g - 0.5, 4.876);
-    if (g <= 0.9625) return 30.748 * g - 19.88;
-    return 0.228 * Math.pow(2.718, 3.386 * Math.pow(g, 24.658)) + 8.862;
+  function accuracyY(value) {
+    const accuracy = Number(value);
+    if (!Number.isFinite(accuracy) || accuracy <= 0.75) return null;
+    const g = Math.min(accuracy, 1);
+    if (g <= 0.8278) return 16730 * Math.pow(g - 0.75, 3.805);
+    if (g <= 0.9793) return 56.4468 * g - 45.7187;
+    const highSegment = (point) => 0.2246 * Math.pow(2.718, 120 * (point - 0.972)) + 9.02;
+    const boundary = highSegment(0.9793);
+    const maximum = highSegment(1);
+    return boundary + ((highSegment(g) - boundary) / (maximum - boundary)) * (15.5 - boundary);
   }
 
   function powerMean(a, b, weight, power) {
@@ -184,12 +189,14 @@
   }
 
   function calculateClassicSingle(row) {
-    const totalNotes = Number(row.good) + Number(row.ok) + Number(row.ng);
-    const fallbackNotes = Number(row.chartCombo || row.combo || row.raw?.combo_cnt || 0);
-    const notes = totalNotes > 0 ? totalNotes : fallbackNotes;
-    const goodRate = notes > 0 ? Number(row.good || 0) / notes : null;
+    const judgmentNotes = Number(row.good) + Number(row.ok) + Number(row.ng);
+    const chartNotes = Number(row.chartCombo || 0);
+    const fallbackNotes = Number(row.combo || row.raw?.combo_cnt || 0);
+    const notes = Math.max(chartNotes, judgmentNotes, 0) || fallbackNotes;
+    const isDondaful = Number(row.raw?.dondaful_combo_cnt || row.dondafulComboCount || 0) > 0;
+    const accuracy = notes > 0 ? (isDondaful ? 1 : (Number(row.good || 0) + Number(row.ok || 0) * 0.5) / notes) : null;
     const x = interpolateAnchors(CLASSIC_CONST_X, row.constant);
-    const y = accuracyY(goodRate);
+    const y = accuracyY(accuracy);
     const f = row.features || {};
     const complex = Number(f.complex ?? 0);
     const { stamina, speed } = featurePairToBody(f.avg_density, f.peak_density);
@@ -205,7 +212,7 @@
     return {
       ...row,
       classicSingle: single,
-      goodRate,
+      goodRate: accuracy,
       x,
       y,
       dimensions: {
@@ -220,15 +227,19 @@
   }
 
   function calculateClassicMetrics(rows) {
-    const classicRows = rows.map(calculateClassicSingle).filter(Boolean).sort((a, b) => b.classicSingle - a.classicSingle);
+    const classicRows = rows
+      .map(calculateClassicSingle)
+      .filter(Boolean)
+      .sort((a, b) => b.classicSingle - a.classicSingle);
+    const b20 = classicRows.slice(0, CLASSIC_BEST_COUNT);
     return {
       rows: classicRows,
-      b20: classicRows.slice(0, CLASSIC_BEST_COUNT),
-      rating: calculateClassicAggregate(classicRows.map((row) => row.classicSingle), "overall"),
+      b20,
+      rating: averageTop(b20.map((row) => row.classicSingle)),
       dimensions: Object.fromEntries(
         DIMENSIONS.map((dim) => [
           dim.key,
-          calculateClassicAggregate(classicRows.map((row) => row.dimensions[dim.key]), dim.key),
+          averageTop(classicRows.map((row) => row.dimensions[dim.key])),
         ]),
       ),
     };
