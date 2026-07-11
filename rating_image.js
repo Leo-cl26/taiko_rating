@@ -66,12 +66,18 @@
   ];
 
   const DIMENSIONS = [
-    { key: "power", label: "大歌力" },
     { key: "stamina", label: "体力" },
-    { key: "speed", label: "高速力" },
-    { key: "accuracy", label: "精度力" },
-    { key: "rhythm", label: "节奏处理" },
-    { key: "complex", label: "复合处理" },
+    { key: "handspeed", label: "手速" },
+    { key: "burst", label: "爆发" },
+    { key: "accuracy", label: "精度" },
+    { key: "rhythm", label: "节奏" },
+    { key: "complex", label: "复合" },
+  ];
+  const ABILITY_BEST_COUNT = 15;
+  let v2Catalog = [];
+  const DAN_ANCHORS = [
+    [6.31, "六段"], [8.05, "七段"], [8.50, "八段"], [8.70, "九段"],
+    [10.63, "十段"], [11.22, "玄人"], [11.79, "名人"], [12.51, "超人"], [14.27, "达人"],
   ];
 
   const CLASSIC_AGGREGATE_REFERENCE = {
@@ -102,6 +108,52 @@
   function averageTop(values, count = CLASSIC_BEST_COUNT) {
     const top = [...values].filter(Number.isFinite).sort((a, b) => b - a).slice(0, count);
     return fixedAverage(top, top.length);
+  }
+
+  function weightedAbility(values) {
+    const ranked = [...values].filter(Number.isFinite).sort((a, b) => b - a).slice(0, ABILITY_BEST_COUNT);
+    let total = 0;
+    let weightTotal = 0;
+    ranked.forEach((value, index) => {
+      const weight = index < 5 ? 1 : index < 10 ? 0.8 : 0.6;
+      total += value * weight;
+      weightTotal += weight;
+    });
+    return weightTotal ? total / weightTotal : 0;
+  }
+
+  function median(values) {
+    const sorted = [...values].filter(Number.isFinite).sort((a, b) => a - b);
+    if (!sorted.length) return 0;
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  function referenceAt(rating, key) {
+    let nearby = v2Catalog.filter((row) => Math.abs(Number(row.main) - rating) <= 0.5);
+    if (nearby.length < 20) nearby = v2Catalog.filter((row) => Math.abs(Number(row.main) - rating) <= 1);
+    const values = nearby.map((row) => Number(row[key])).filter(Number.isFinite);
+    const center = median(values);
+    const spread = median(values.map((value) => Math.abs(value - center))) * 1.4826;
+    return { center, spread: Math.max(spread, 0.75) };
+  }
+
+  function buildTendencies(dimensions, rating, sampleCounts) {
+    return Object.fromEntries(DIMENSIONS.map((dim) => {
+      const reference = dim.key === "accuracy" ? { center: rating, spread: 0.9 } : referenceAt(rating, dim.key);
+      const z = (Number(dimensions[dim.key]) - reference.center) / reference.spread;
+      const confidence = Math.min((sampleCounts[dim.key] || 0) / 8, 1);
+      const raw = 50 + 25 * Math.tanh(z / 1.5);
+      return [dim.key, 50 + (raw - 50) * confidence];
+    }));
+  }
+
+  function danLevel(rating) {
+    if (!Number.isFinite(rating) || rating < DAN_ANCHORS[0][0]) return "六段以下";
+    for (let index = 1; index < DAN_ANCHORS.length; index += 1) {
+      if (rating < DAN_ANCHORS[index][0]) return `${DAN_ANCHORS[index - 1][1]}～${DAN_ANCHORS[index][1]}`;
+    }
+    return "达人以上";
   }
 
   function calculateClassicAggregate(values, metric) {
@@ -209,20 +261,56 @@
     const single = powerMean(x, y, weight, power);
     if (single == null) return null;
 
+    const calculated = { ...row, classicSingle: single, goodRate: accuracy, x, y };
+    const fallback = {
+      stamina: Math.sqrt((single * stamina * 15.5) / 100),
+      handspeed: Math.sqrt((single * stamina * 15.5) / 100),
+      burst: Math.sqrt((single * speed * 15.5) / 100),
+      accuracy: Math.sqrt(single * y),
+      rhythm: Math.sqrt((single * rhythm * 15.5) / 100),
+      complex: Math.sqrt((single * complex * 15.5) / 100),
+    };
+    calculated.dimensions = calculateV2Dimensions(calculated, accuracy, notes) || fallback;
+    return calculated;
+  }
+
+  function calculateV2Dimensions(row, accuracyPer, notes) {
+    const chart = row.v2;
+    const accuracy = accuracyY(accuracyPer);
+    if (!chart || !Number.isFinite(accuracy)) return null;
+    const singleRating = (constant) => {
+      const x = Number(constant);
+      const p = 150 - Math.sqrt(Math.max(0, 150 ** 2 - (x - accuracy) ** 2 / 2));
+      const w = Math.max(Math.sqrt(Math.max(0, 25 - (x - 15.5) ** 2 / 25 - (accuracy - 23) ** 2 / 69)) - 4, 0.5);
+      return powerMean(x, accuracy, w, p) || 0;
+    };
+    const handspeed = singleRating(chart.handspeed);
+    const hsFactor = Number(chart.handspeed) > 0 ? Math.min(accuracy / Number(chart.handspeed), 1) : 1;
+    const burstCandidate = singleRating(chart.burst) * hsFactor;
+    const denominator = Number(chart.burst) - Number(chart.handspeed);
+    const blend = Math.abs(denominator) < 1e-9
+      ? (accuracy > Number(chart.handspeed) ? 1 : 0)
+      : clamp((accuracy - Number(chart.handspeed)) / denominator, 0, 1);
+    const burst = burstCandidate > handspeed ? handspeed + blend * (burstCandidate - handspeed) : burstCandidate;
+    const badRate = notes > 0 ? Number(row.ng || 0) / notes : 0;
+    const complexPenalty = (5000 / 9) * Math.max(0.03 - badRate, 0) ** 2 + 0.5;
+    const rating = Number(row.classicSingle || 0);
+    const base = Math.min(rating, accuracy);
+    const upper = Math.max(rating, accuracy);
+    let accuracyRt;
+    if (accuracy <= rating) {
+      accuracyRt = base + Math.log(upper - base + 1);
+    } else {
+      // Preserve Sakura v2's published high-side behavior exactly.
+      accuracyRt = Math.sqrt(base * upper);
+    }
     return {
-      ...row,
-      classicSingle: single,
-      goodRate: accuracy,
-      x,
-      y,
-      dimensions: {
-        power: Math.sqrt(single * x),
-        stamina: Math.sqrt((single * stamina * 15.5) / 100),
-        speed: Math.sqrt((single * speed * 15.5) / 100),
-        accuracy: Math.sqrt(single * y),
-        rhythm: Math.sqrt((single * rhythm * 15.5) / 100),
-        complex: Math.sqrt((single * complex * 15.5) / 100),
-      },
+      stamina: singleRating(chart.stamina),
+      handspeed,
+      burst,
+      accuracy: accuracyRt,
+      rhythm: singleRating(chart.rhythm) * hsFactor,
+      complex: singleRating(chart.complex) * complexPenalty,
     };
   }
 
@@ -232,16 +320,21 @@
       .filter(Boolean)
       .sort((a, b) => b.classicSingle - a.classicSingle);
     const b20 = classicRows.slice(0, CLASSIC_BEST_COUNT);
+    const rating = averageTop(b20.map((row) => row.classicSingle));
+    const dimensions = Object.fromEntries(
+      DIMENSIONS.map((dim) => [dim.key, weightedAbility(classicRows.map((row) => row.dimensions[dim.key]))]),
+    );
+    const sampleCounts = Object.fromEntries(
+      DIMENSIONS.map((dim) => [dim.key, Math.min(classicRows.filter((row) => Number.isFinite(row.dimensions[dim.key])).length, ABILITY_BEST_COUNT)]),
+    );
     return {
       rows: classicRows,
       b20,
-      rating: averageTop(b20.map((row) => row.classicSingle)),
-      dimensions: Object.fromEntries(
-        DIMENSIONS.map((dim) => [
-          dim.key,
-          averageTop(classicRows.map((row) => row.dimensions[dim.key])),
-        ]),
-      ),
+      rating,
+      dimensions,
+      tendencies: buildTendencies(dimensions, rating, sampleCounts),
+      sampleCounts,
+      danLevel: danLevel(rating),
     };
   }
 
@@ -390,6 +483,7 @@
     fillRounded(ctx, 96, 210, 470, 142, 8, "#fff7f4", "#e6d7d1");
     drawText(ctx, "表 Rating", 126, 260, { size: 27, weight: "700", color: "#a23b35" });
     drawText(ctx, formatNumber(classic.rating), 520, 292, { size: 58, weight: "700", color: "#a23b35", align: "right", baseline: "middle" });
+    drawText(ctx, `历史段位参考：${classic.danLevel}`, 126, 330, { size: 18, color: "#7b7470" });
 
     fillRounded(ctx, 96, 382, 470, 142, 8, "#f2f8fb", "#d0dde4");
     drawText(ctx, "里 Rating", 126, 432, { size: 27, weight: "700", color: "#246f92" });
@@ -400,16 +494,13 @@
     drawText(ctx, `${matchedCount}`, 522, 608, { size: 36, weight: "700", color: "#4d4743", align: "right", baseline: "middle" });
   }
 
-  function drawRadar(ctx, dimensions) {
+  function drawRadar(ctx, dimensions, tendencies) {
     const cx = 1010;
     const cy = 408;
     const radius = 180;
-    const values = DIMENSIONS.map((dim) => dimensions[dim.key] || 0);
-    const positive = values.filter((value) => value > 0);
-    const minAxis = Math.max(0, (positive.length ? Math.min(...positive) : 0) - 1);
-    const maxAxis = Math.max(minAxis + 1, Math.max(...values, 1) + 0.6);
+    const values = DIMENSIONS.map((dim) => tendencies[dim.key] || 50);
 
-    drawText(ctx, "六维 Rating", 760, 116, { size: 32, weight: "700", color: "#202225" });
+    drawText(ctx, "能力倾向（中心 = 同水平）", 720, 116, { size: 30, weight: "700", color: "#202225" });
 
     ctx.strokeStyle = "#ded8d1";
     ctx.lineWidth = 1.2;
@@ -438,7 +529,7 @@
     ctx.beginPath();
     DIMENSIONS.forEach((dim, index) => {
       const angle = -Math.PI / 2 + (Math.PI * 2 * index) / DIMENSIONS.length;
-      const value = clamp(((dimensions[dim.key] || 0) - minAxis) / (maxAxis - minAxis), 0, 1);
+      const value = clamp((Number(tendencies[dim.key] || 50) - 25) / 50, 0, 1);
       const x = cx + Math.cos(angle) * value * radius;
       const y = cy + Math.sin(angle) * value * radius;
       if (index === 0) ctx.moveTo(x, y);
@@ -456,7 +547,7 @@
       const lx = cx + Math.cos(angle) * (radius + 116);
       const ly = cy + Math.sin(angle) * (radius + 82);
       drawText(ctx, dim.label, lx, ly - 12, { size: 22, weight: "700", color: "#4d4743", align: "center" });
-      drawText(ctx, formatNumber(dimensions[dim.key]), lx, ly + 22, {
+      drawText(ctx, `${formatNumber(dimensions[dim.key])} · ${Math.round(tendencies[dim.key] || 50)}`, lx, ly + 22, {
         size: 25,
         color: "#7b7470",
         align: "center",
@@ -529,7 +620,7 @@
 
     drawBackground(ctx);
     drawHeader(ctx, classic, ura, classicRows.length);
-    drawRadar(ctx, classic.dimensions);
+    drawRadar(ctx, classic.dimensions, classic.tendencies);
     drawSection(ctx, "表 Rating B20", classic.b20, 730, "classic");
     drawSection(ctx, "里 Rating B30", ura.b30, 1280, "new");
 
@@ -539,10 +630,14 @@
       rating: classic.rating,
       uraRating: ura.rating,
       dimensions: classic.dimensions,
+      tendencies: classic.tendencies,
     };
   }
 
   window.TaikoRatingImage = {
+    setV2Catalog(rows) {
+      v2Catalog = Array.isArray(rows) ? rows : [];
+    },
     calculateClassicSingle,
     calculateClassicMetrics,
     calculateUraMetrics,

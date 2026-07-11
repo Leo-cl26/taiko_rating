@@ -120,12 +120,12 @@
               练习对象
               <select id="recommendTargetSelect">
                 <option value="auto">自动判断</option>
-                <option value="power">大歌力</option>
                 <option value="stamina">体力</option>
-                <option value="speed">高速力</option>
-                <option value="accuracy">精度力</option>
-                <option value="rhythm">节奏处理</option>
-                <option value="complex">复合处理</option>
+                <option value="handspeed">手速</option>
+                <option value="burst">爆发</option>
+                <option value="accuracy">精度</option>
+                <option value="rhythm">节奏</option>
+                <option value="complex">复合</option>
               </select>
             </label>
             <label class="toggle-line recommend-toggle">
@@ -301,7 +301,7 @@
             <p>复合数值表示谱面里需要手顺处理的复合配置强度，主要描述长复合、复杂复合、复合密集段带来的处理压力。</p>
             <p>咚咔复杂度表示红蓝音符类型切换的复杂程度，越高说明咚/咔交替、音色切换和识别负担越重；它会参与节奏处理维度，而不是直接等同于复合处理。</p>
             <h3>六维数据</h3>
-            <p>六维基于表 Rating 的单曲结果继续拆分：大歌力主要来自定数得点，精度力主要来自良率表现，体力来自平均密度，高速力来自瞬间密度，节奏处理来自咚咔复杂度和 BPM 变化，复合处理来自复合数值。</p>
+            <p>六维优先使用 Sakura Bot v2 谱面常数，分别表示体力、持续手速、短时爆发、精度、节奏与复合。轴旁数值表示专项绝对 Rating，六边形形状表示相对同 Rating 基准的能力倾向；困难及以下谱面使用现有谱面特征兼容计算。</p>
             <p>每个维度都会对可计入歌曲单独取 B20，再固定除以 20，所以六维不是同一批歌的拆解，而是各维度各自的最佳二十首。</p>
           </div>
         </div>
@@ -331,7 +331,7 @@
     <script>
       window.TAIKO_FEEDBACK_API_BASE = "https://taiko-rating-feedback.mmtumr.workers.dev";
     </script>
-    <script src="rating_image.js?v=20260706-feedback-inline"></script>
-    <script src="app.js?v=20260706-feedback-inline"></script>
+    <script src="rating_image.js?v=20260712-v2-ability-profile"></script>
+    <script src="app.js?v=20260712-v2-ability-profile"></script>
   </body>
 </html>

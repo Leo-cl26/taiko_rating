@@ -22,3 +22,22 @@ Then open `http://127.0.0.1:8765/`.
 GitHub Pages can serve this repo directly as a static site. In the repository
 settings, enable Pages with source `Deploy from a branch`, branch `main`, folder
 `/ (root)`.
+
+## V2 ability profile
+
+The main Rating remains the absolute strength indicator. The six numeric
+abilities use Sakura Bot v2 constants when a numeric arcade song ID is
+available: stamina, hand speed, burst, accuracy, rhythm, and complex. Each is a
+weighted Best 15, with weights `1.0 / 0.8 / 0.6` for each group of five.
+
+The radar polygon is a relative profile centered at 50. Its baseline is the
+median and MAD of v2 charts within `main constant +/- 0.5`; it is an ability
+tendency, not a player percentile. Lower difficulties retain a feature-based
+fallback. Historical Nijiiro 2020-2024 dojo medians provide the displayed Dan
+reference.
+
+Regenerate the vendored v2 constants with:
+
+```bash
+python scripts/build_v2_constants.py
+```

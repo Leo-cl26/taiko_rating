@@ -1,17 +1,17 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260710-rating-all-levels";
+const DATA_VERSION = "20260712-v2-ability-profile";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
 
 const RADAR_DIMS = [
-  { key: "power", label: "大歌力" },
   { key: "stamina", label: "体力" },
-  { key: "speed", label: "高速力" },
-  { key: "accuracy", label: "精度力" },
-  { key: "rhythm", label: "节奏处理" },
-  { key: "complex", label: "复合处理" },
+  { key: "handspeed", label: "手速" },
+  { key: "burst", label: "爆发" },
+  { key: "accuracy", label: "精度" },
+  { key: "rhythm", label: "节奏" },
+  { key: "complex", label: "复合" },
 ];
 
 const FIELD_DEFS = [
@@ -76,6 +76,7 @@ const state = {
   localPreviews: new Map(),
   localPreviewSummary: null,
   localPreviewError: "",
+  v2Constants: new Map(),
   exportImageUrl: "",
   chartPreviewPlayer: null,
   feedbackSummaries: new Map(),
@@ -520,9 +521,14 @@ async function loadLocalPreviews() {
 
 async function loadChartData() {
   try {
-    const resp = await fetch(`data/chart_data.json?v=${DATA_VERSION}`, { cache: "no-store" });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const charts = await resp.json();
+    const [resp, v2Resp] = await Promise.all([
+      fetch(`data/chart_data.json?v=${DATA_VERSION}`, { cache: "no-store" }),
+      fetch(`data/v2_constants.json?v=${DATA_VERSION}`, { cache: "no-store" }),
+    ]);
+    if (!resp.ok || !v2Resp.ok) throw new Error(`HTTP ${resp.status}/${v2Resp.status}`);
+    const [charts, v2Rows] = await Promise.all([resp.json(), v2Resp.json()]);
+    state.v2Constants = new Map((Array.isArray(v2Rows) ? v2Rows : []).map((row) => [chartKey(row.id, row.level), row]));
+    window.TaikoRatingImage?.setV2Catalog?.(Array.isArray(v2Rows) ? v2Rows : []);
     state.chartData = Array.isArray(charts) ? charts : [];
     await loadLocalPreviews();
     indexChartData(state.chartData);
@@ -676,6 +682,7 @@ function rateRecords(records) {
         needsEncoder: chart.needs_encoder,
         chartCombo: chart.combo,
         features: chart.features || {},
+        v2: state.v2Constants.get(chartKey(record.songNo, record.level)) || null,
         clearCount,
         bestScoreRank,
         passed: isPassedRecord(record),
@@ -720,11 +727,7 @@ function calculateRating() {
   renderRecommendations();
 }
 
-function radarSvg(dimensions, x, y, radius, color) {
-  const values = RADAR_DIMS.map((dim) => Number(dimensions?.[dim.key]) || 0);
-  const positive = values.filter((value) => value > 0);
-  const minAxis = Math.max(0, (positive.length ? Math.min(...positive) : 0) - 1);
-  const maxAxis = Math.max(minAxis + 1, Math.max(...values, 1) + 0.6);
+function radarSvg(tendencies, dimensions, x, y, radius, color) {
   const point = (index, r) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / RADAR_DIMS.length;
     return [x + Math.cos(angle) * r, y + Math.sin(angle) * r];
@@ -741,7 +744,7 @@ function radarSvg(dimensions, x, y, radius, color) {
     return `<line x1="${x}" y1="${y}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" stroke="#d9dee5" stroke-width="1" />`;
   }).join("");
   const dataPoints = RADAR_DIMS.map((dim, index) => {
-    const value = clamp(((Number(dimensions?.[dim.key]) || 0) - minAxis) / (maxAxis - minAxis), 0, 1);
+    const value = clamp(((Number(tendencies?.[dim.key]) || 50) - 25) / 50, 0, 1);
     return point(index, value * radius);
   });
   const labels = RADAR_DIMS.map((dim, index) => {
@@ -749,7 +752,7 @@ function radarSvg(dimensions, x, y, radius, color) {
     const anchor = lx < x - 10 ? "end" : lx > x + 10 ? "start" : "middle";
     return `
       <text x="${lx.toFixed(1)}" y="${(ly - 2).toFixed(1)}" font-size="13" font-weight="700" fill="#4d5660" text-anchor="${anchor}">${escapeHtml(dim.label)}</text>
-      <text x="${lx.toFixed(1)}" y="${(ly + 16).toFixed(1)}" font-size="12" fill="#66717d" text-anchor="${anchor}">${escapeHtml(formatRatingValue(dimensions?.[dim.key]))}</text>
+      <text x="${lx.toFixed(1)}" y="${(ly + 16).toFixed(1)}" font-size="12" fill="#66717d" text-anchor="${anchor}">${escapeHtml(formatRatingValue(dimensions?.[dim.key]))} · ${Math.round(Number(tendencies?.[dim.key]) || 50)}</text>
     `;
   }).join("");
 
@@ -801,8 +804,8 @@ function renderRatingTable(summary = state.ratingSummary) {
   `;
   const radarBlock = `
     <g>
-      <text x="1110" y="82" font-size="28" font-weight="800" fill="#20252b">六维 Rating</text>
-      ${radarSvg(summary.classic?.dimensions || {}, 1510, 170, 96, "#a23b35")}
+      <text x="1070" y="82" font-size="26" font-weight="800" fill="#20252b">能力倾向（中心=同水平）</text>
+      ${radarSvg(summary.classic?.tendencies || {}, summary.classic?.dimensions || {}, 1510, 170, 96, "#a23b35")}
     </g>
   `;
 
@@ -920,12 +923,12 @@ function renderRatingDetail(item) {
     ["单曲表R", classic ? classic.classicSingle.toFixed(2) : "--"],
     ["定数得点 x", classic ? classic.x.toFixed(2) : "--"],
     ["良率表现 y", classic ? classic.y.toFixed(2) : "--"],
-    ["大歌力", formatNumber(dims.power)],
     ["体力", formatNumber(dims.stamina)],
-    ["高速力", formatNumber(dims.speed)],
-    ["精度力", formatNumber(dims.accuracy)],
-    ["节奏处理", formatNumber(dims.rhythm)],
-    ["复合处理", formatNumber(dims.complex)],
+    ["手速", formatNumber(dims.handspeed)],
+    ["爆发", formatNumber(dims.burst)],
+    ["精度", formatNumber(dims.accuracy)],
+    ["节奏", formatNumber(dims.rhythm)],
+    ["复合", formatNumber(dims.complex)],
     ["平均密度", formatLoose(f.avg_density)],
     ["瞬间密度", formatLoose(f.peak_density)],
     ["BPM变化", formatLoose(f.bpm_change)],
@@ -1169,9 +1172,9 @@ function chartTrainingProfile(chart) {
   const rhythm = chartFeatureNumber(chart, "rhythm") || noteType;
   const stability = 100 - (complex * 0.28 + rhythm * 0.24 + bpmChange * 0.22 + hsChange * 0.18 + peakDensity * 0.08);
   return {
-    power: clamp((Number(chart.const) - 4) / 8, 0, 1),
     stamina: clamp(avgDensity / 100, 0, 1),
-    speed: clamp(peakDensity / 100, 0, 1),
+    handspeed: clamp(avgDensity / 100, 0, 1),
+    burst: clamp(peakDensity / 100, 0, 1),
     accuracy: clamp(stability / 100, 0, 1),
     rhythm: clamp((rhythm + bpmChange * 0.35 + hsChange * 0.2) / 130, 0, 1),
     complex: clamp(complex / 100, 0, 1),
@@ -1232,11 +1235,8 @@ function formatPracticeTarget(dims, isAuto) {
 function practiceDescription(dims) {
   const keys = new Set(dims.map((dim) => dim.key));
   const names = dims.map((dim) => dim.label).join(" / ");
-  if (dims.length > 1 && keys.has("power") && keys.has("accuracy")) return "会优先挑选同时适合两项练习对象的谱面；大歌力偏向略高定数，精度力偏向略低定数。";
-  if (dims.length > 1 && keys.has("power")) return `会优先挑选同时适合 ${names} 的谱面；大歌力偏向略高定数，其余对象按谱面特征筛选。`;
   if (dims.length > 1 && keys.has("accuracy")) return `会优先挑选同时适合 ${names} 的谱面；精度力偏向略低定数，其余对象按谱面特征筛选。`;
   if (dims.length > 1) return `会优先挑选在 ${names} 上都比较合适的谱面。`;
-  if (keys.has("power")) return "大歌力偏向推荐略高定数的歌曲。";
   if (keys.has("accuracy")) return "精度力偏向推荐略低定数的歌曲。";
   if (dims.length) return `优先挑选接近当前里 Rating、并能练到 ${names} 的谱面。`;
   return "六维数据不足时，优先按定数接近当前里 Rating 推荐。";
@@ -1244,7 +1244,6 @@ function practiceDescription(dims) {
 
 function desiredDeltaForPractice(dims) {
   const offsets = dims.flatMap((dim) => {
-    if (dim.key === "power") return [0.55];
     if (dim.key === "accuracy") return [-0.55];
     return [0.08];
   });
@@ -1254,21 +1253,12 @@ function desiredDeltaForPractice(dims) {
 
 function practiceQuotas(dims, balanced = false) {
   const keys = new Set(dims.map((dim) => dim.key));
-  if (balanced && keys.has("power") && keys.has("accuracy")) return { 略高: 7, 略低: 7, 同水平: 6 };
-  if (balanced && keys.has("power")) return { 略高: 8, 同水平: 8, 略低: 4 };
   if (balanced && keys.has("accuracy")) return { 略低: 8, 同水平: 8, 略高: 4 };
-  if (keys.has("power") && keys.has("accuracy")) return { 略高: 8, 略低: 8, 同水平: 4 };
-  if (keys.has("power")) return { 略高: 12, 同水平: 5, 略低: 3 };
   if (keys.has("accuracy")) return { 略低: 12, 同水平: 5, 略高: 3 };
   return { 同水平: 8, 略高: 7, 略低: 5 };
 }
 
 function practiceMatchScore(dim, band, profile) {
-  if (dim.key === "power") {
-    if (band === "略高") return 1;
-    if (band === "同水平") return 0.42;
-    return 0.06;
-  }
   if (dim.key === "accuracy") {
     const bandScore = band === "略低" ? 1 : band === "同水平" ? 0.44 : 0.08;
     return bandScore * 0.7 + (profile.accuracy || 0) * 0.3;
@@ -1323,7 +1313,7 @@ function recommendationJitter(chart) {
 function buildRecommendations() {
   const rating = Number(state.ratingSummary?.ura?.rating);
   if (!Number.isFinite(rating) || rating <= 0) return { rating, weakDims: [], practiceDims: [], rows: [] };
-  const weakDims = getWeakDimensions(state.ratingSummary?.classic?.dimensions || {});
+  const weakDims = getWeakDimensions(state.ratingSummary?.classic?.tendencies || {});
   const practiceDims = getSelectedPracticeDims(weakDims);
   const balancedPractice = isAutoPracticeSelection() && practiceDims.length > 1;
   const desiredDelta = desiredDeltaForPractice(practiceDims);
