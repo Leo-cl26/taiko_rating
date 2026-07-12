@@ -74,7 +74,7 @@
     { key: "complex", label: "复合" },
   ];
   const ABILITY_BEST_COUNT = 15;
-  let v2Catalog = [];
+  let abilityCatalog = [];
   const DAN_ANCHORS = [
     [6.31, "六段"], [8.05, "七段"], [8.50, "八段"], [8.70, "九段"],
     [10.63, "十段"], [11.22, "玄人"], [11.79, "名人"], [12.51, "超人"], [14.27, "达人"],
@@ -130,8 +130,8 @@
   }
 
   function referenceAt(rating, key) {
-    let nearby = v2Catalog.filter((row) => Math.abs(Number(row.main) - rating) <= 0.5);
-    if (nearby.length < 20) nearby = v2Catalog.filter((row) => Math.abs(Number(row.main) - rating) <= 1);
+    let nearby = abilityCatalog.filter((row) => Math.abs(Number(row.main) - rating) <= 0.5);
+    if (nearby.length < 20) nearby = abilityCatalog.filter((row) => Math.abs(Number(row.main) - rating) <= 1);
     const values = nearby.map((row) => Number(row[key])).filter(Number.isFinite);
     const center = median(values);
     const spread = median(values.map((value) => Math.abs(value - center))) * 1.4826;
@@ -270,12 +270,12 @@
       rhythm: Math.sqrt((single * rhythm * 15.5) / 100),
       complex: Math.sqrt((single * complex * 15.5) / 100),
     };
-    calculated.dimensions = calculateV2Dimensions(calculated, accuracy, notes) || fallback;
+    calculated.dimensions = calculateAbilityDimensions(calculated, accuracy, notes) || fallback;
     return calculated;
   }
 
-  function calculateV2Dimensions(row, accuracyPer, notes) {
-    const chart = row.v2;
+  function calculateAbilityDimensions(row, accuracyPer, notes) {
+    const chart = row.ability;
     const accuracy = accuracyY(accuracyPer);
     if (!chart || !Number.isFinite(accuracy)) return null;
     const singleRating = (constant) => {
@@ -635,8 +635,8 @@
   }
 
   window.TaikoRatingImage = {
-    setV2Catalog(rows) {
-      v2Catalog = Array.isArray(rows) ? rows : [];
+    setAbilityCatalog(rows) {
+      abilityCatalog = Array.isArray(rows) ? rows : [];
     },
     calculateClassicSingle,
     calculateClassicMetrics,

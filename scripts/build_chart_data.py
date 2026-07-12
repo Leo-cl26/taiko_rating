@@ -343,7 +343,8 @@ def make_record(
     for name in [title, *aliases]:
         for alias in alias_index.get(normalize_title(name), []):
             add_unique_alias(aliases, alias, title)
-    rating_excluded = course.casefold() == "normal"
+    forced_normal = is_forced_normal(row)
+    rating_excluded = course.casefold() == "normal" and not forced_normal
     return {
         "id": record_id,
         "title": title,
@@ -368,7 +369,7 @@ def make_record(
         "needs_encoder": excel_row is None and fumen_row_stats is None and generated_stats is None,
         "rating_excluded": rating_excluded,
         "rating_exclusion_reason": "竹难度为更松判定，仅作理论难度参考，不参与表 Rating B20 / 里 Rating B30" if rating_excluded else None,
-        "force_included": is_forced_normal(row),
+        "force_included": forced_normal,
         "review": {
             "matched_combo_delta": as_int(excel_row.get("combo_delta")) if excel_row else (
                 as_int((stats.get("fumen") or {}).get("match", {}).get("combo_delta")) if source == "fumen" else None
@@ -531,6 +532,7 @@ def build_chart_data(
     encoder_stats_by_id: dict[str, Any],
     bpm_by_path: dict[str, float | None],
     alias_index: dict[str, list[str]],
+    v3_abilities_by_id: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -546,7 +548,15 @@ def build_chart_data(
             continue
         seen.add(key)
         excel_row = excel_by_course.get(key)
-        records.append(make_record(row, excel_row, fumen_stats_by_id, encoder_stats_by_id, bpm_by_path, alias_index))
+        record = make_record(row, excel_row, fumen_stats_by_id, encoder_stats_by_id, bpm_by_path, alias_index)
+        ability = (v3_abilities_by_id or {}).get(str(record.get("id")))
+        if isinstance(ability, dict):
+            record["v3"] = {
+                key: round(float(ability[key]), 4)
+                for key in ("main", "stamina", "handspeed", "burst", "complex", "rhythm")
+                if ability.get(key) is not None
+            }
+        records.append(record)
 
     records, dedupe_summary = drop_exact_numeric_duplicates(records)
     records.sort(key=lambda item: (item["course"] != "Edit", item["course"] != "Oni", item["course"] != "Hard", item["title"]))
@@ -569,6 +579,12 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "by_course": dict(sorted(by_course.items())),
         "by_source": dict(sorted(by_source.items())),
         "needs_encoder": sum(1 for row in records if row["needs_encoder"]),
+        "v3_abilities": {
+            "covered": sum(1 for row in records if isinstance(row.get("v3"), dict)),
+            "by_course": dict(sorted(Counter(
+                row["course"] for row in records if isinstance(row.get("v3"), dict)
+            ).items())),
+        },
         "duplicate_title_groups": sum(1 for count in duplicate_groups.values() if count > 1),
         "duplicate_chart_rows": sum(count for count in duplicate_groups.values() if count > 1),
         "exact_numeric_dedupe": dedupe_summary,
@@ -593,7 +609,13 @@ def main() -> None:
     parser.add_argument("--ese-courses", type=Path, default=Path("../taiko_encoder_out/ese_courses.csv"))
     parser.add_argument("--strict-matched", type=Path, default=Path("../taiko_encoder_out/strict_matched_dataset.csv"))
     parser.add_argument("--fumen-stats", type=Path, default=Path("data/fumen_chart_stats.json"))
-    parser.add_argument("--encoder-stats", type=Path, default=Path("data/encoder_chart_stats.json"))
+    parser.add_argument(
+        "--encoder-stats",
+        type=Path,
+        default=Path("data/encoder_chart_stats_ordinal.json"),
+        help="Generated fallback stats; defaults to the retained pre-tuning ordinal const model.",
+    )
+    parser.add_argument("--v3-abilities", type=Path, default=Path("data/v3_abilities.json"))
     parser.add_argument("--alias-workbook", type=Path, default=Path("太鼓之达人歌曲别名收集表.xlsx"))
     parser.add_argument("--output", type=Path, default=Path("data/chart_data.json"))
     parser.add_argument("--summary", type=Path, default=Path("data/chart_data_summary.json"))
@@ -607,10 +629,21 @@ def main() -> None:
     encoder_stats_by_id: dict[str, Any] = {}
     if args.encoder_stats.exists():
         encoder_stats_by_id = json.loads(args.encoder_stats.read_text(encoding="utf-8"))
+    v3_abilities_by_id: dict[str, Any] = {}
+    if args.v3_abilities.exists():
+        v3_abilities_by_id = json.loads(args.v3_abilities.read_text(encoding="utf-8"))
     alias_index = build_song_alias_index(args.alias_workbook)
     excel_by_course = build_excel_by_course(strict_rows)
     bpm_by_path = build_bpm_by_path(ese_rows)
-    records = build_chart_data(ese_rows, excel_by_course, fumen_stats_by_id, encoder_stats_by_id, bpm_by_path, alias_index)
+    records = build_chart_data(
+        ese_rows,
+        excel_by_course,
+        fumen_stats_by_id,
+        encoder_stats_by_id,
+        bpm_by_path,
+        alias_index,
+        v3_abilities_by_id,
+    )
     summary = summarize(records)
     summary["alias_workbook"] = {
         "path": str(args.alias_workbook),

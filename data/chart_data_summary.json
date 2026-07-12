@@ -14,6 +14,15 @@
     "fumen": 457
   },
   "needs_encoder": 859,
+  "v3_abilities": {
+    "covered": 5920,
+    "by_course": {
+      "Edit": 371,
+      "Hard": 2822,
+      "Normal": 2,
+      "Oni": 2725
+    }
+  },
   "duplicate_title_groups": 119,
   "duplicate_chart_rows": 250,
   "exact_numeric_dedupe": {

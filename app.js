@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260712-v2-ability-profile";
+const DATA_VERSION = "20260713-v3-full-ability-profile";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const RATING_BEST_COUNT = 30;
 const CHART_PAGE_SIZE = 10;
@@ -471,6 +471,7 @@ function indexChartData(charts) {
       const: Number(chart.const),
       combo: chart.combo,
       features: chart.features || {},
+      ability: chart.v3 || null,
       source: chart.source,
       needs_encoder: Boolean(chart.needs_encoder),
       raw: chart,
@@ -528,7 +529,10 @@ async function loadChartData() {
     if (!resp.ok || !v2Resp.ok) throw new Error(`HTTP ${resp.status}/${v2Resp.status}`);
     const [charts, v2Rows] = await Promise.all([resp.json(), v2Resp.json()]);
     state.v2Constants = new Map((Array.isArray(v2Rows) ? v2Rows : []).map((row) => [chartKey(row.id, row.level), row]));
-    window.TaikoRatingImage?.setV2Catalog?.(Array.isArray(v2Rows) ? v2Rows : []);
+    const embeddedV3 = (Array.isArray(charts) ? charts : [])
+      .map((chart) => chart?.v3)
+      .filter((ability) => ability && Number.isFinite(Number(ability.main)));
+    window.TaikoRatingImage?.setAbilityCatalog?.(embeddedV3.length ? embeddedV3 : (Array.isArray(v2Rows) ? v2Rows : []));
     state.chartData = Array.isArray(charts) ? charts : [];
     await loadLocalPreviews();
     indexChartData(state.chartData);
@@ -682,7 +686,7 @@ function rateRecords(records) {
         needsEncoder: chart.needs_encoder,
         chartCombo: chart.combo,
         features: chart.features || {},
-        v2: state.v2Constants.get(chartKey(record.songNo, record.level)) || null,
+        ability: chart.ability || state.v2Constants.get(chartKey(record.songNo, record.level)) || null,
         clearCount,
         bestScoreRank,
         passed: isPassedRecord(record),
@@ -1163,6 +1167,7 @@ function chartFeatureNumber(chart, key) {
 }
 
 function chartTrainingProfile(chart) {
+  const ability = chart?.v3 || {};
   const complex = chartFeatureNumber(chart, "complex");
   const avgDensity = chartFeatureNumber(chart, "avg_density");
   const peakDensity = chartFeatureNumber(chart, "peak_density");
@@ -1172,12 +1177,12 @@ function chartTrainingProfile(chart) {
   const rhythm = chartFeatureNumber(chart, "rhythm") || noteType;
   const stability = 100 - (complex * 0.28 + rhythm * 0.24 + bpmChange * 0.22 + hsChange * 0.18 + peakDensity * 0.08);
   return {
-    stamina: clamp(avgDensity / 100, 0, 1),
-    handspeed: clamp(avgDensity / 100, 0, 1),
-    burst: clamp(peakDensity / 100, 0, 1),
+    stamina: clamp(Number.isFinite(Number(ability.stamina)) ? Number(ability.stamina) / 15.5 : avgDensity / 100, 0, 1),
+    handspeed: clamp(Number.isFinite(Number(ability.handspeed)) ? Number(ability.handspeed) / 15.5 : avgDensity / 100, 0, 1),
+    burst: clamp(Number.isFinite(Number(ability.burst)) ? Number(ability.burst) / 15.5 : peakDensity / 100, 0, 1),
     accuracy: clamp(stability / 100, 0, 1),
-    rhythm: clamp((rhythm + bpmChange * 0.35 + hsChange * 0.2) / 130, 0, 1),
-    complex: clamp(complex / 100, 0, 1),
+    rhythm: clamp(Number.isFinite(Number(ability.rhythm)) ? Number(ability.rhythm) / 15.5 : (rhythm + bpmChange * 0.35 + hsChange * 0.2) / 130, 0, 1),
+    complex: clamp(Number.isFinite(Number(ability.complex)) ? Number(ability.complex) / 15.5 : complex / 100, 0, 1),
   };
 }
 
@@ -1288,6 +1293,10 @@ function recommendationBandClass(band) {
 }
 
 function recommendationFeatureText(chart) {
+  const ability = chart.v3 || {};
+  if (["stamina", "handspeed", "burst", "rhythm", "complex"].every((key) => Number.isFinite(Number(ability[key])))) {
+    return `体 ${formatLoose(ability.stamina)} / 速 ${formatLoose(ability.handspeed)} / 爆 ${formatLoose(ability.burst)} · 节奏 ${formatLoose(ability.rhythm)} · 复合 ${formatLoose(ability.complex)}`;
+  }
   const f = chart.features || {};
   return `密度 ${formatLoose(f.avg_density)}/${formatLoose(f.peak_density)} · 节奏 ${formatLoose(f.rhythm)} · 复合 ${formatLoose(f.complex)}`;
 }

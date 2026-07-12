@@ -1,0 +1,30 @@
+{
+  "chart_rows": 6779,
+  "selected": 5920,
+  "already_present": 0,
+  "generated": 5920,
+  "covered": 5920,
+  "coverage": 1.0,
+  "by_course": {
+    "Edit": 371,
+    "Oni": 2725,
+    "Hard": 2822,
+    "Normal": 2
+  },
+  "forced_normal": [
+    {
+      "id": "ese:ESE-master\\ese\\09 Namco Original\\Dark Ex Machina\\Dark Ex Machina.tja::Normal",
+      "title": "DARK EX MACHINA♡",
+      "covered": true
+    },
+    {
+      "id": "ese:ESE-master\\ese\\09 Namco Original\\Yuugen no Ran\\Yuugen no Ran.tja::Normal",
+      "title": "幽玄之乱",
+      "covered": true
+    }
+  ],
+  "checkpoint": "D:\\taiko\\encoder\\checkpoints\\encoder_custom_abilities_v3_physical\\best.pt",
+  "device": "cuda",
+  "elapsed_seconds": 1516.62,
+  "errors": []
+}
