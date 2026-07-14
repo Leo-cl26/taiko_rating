@@ -1,7 +1,7 @@
 {
-  "total": 6779,
+  "total": 6781,
   "by_course": {
-    "Easy": 377,
+    "Easy": 379,
     "Edit": 371,
     "Hard": 2822,
     "Normal": 484,
@@ -9,11 +9,11 @@
   },
   "by_source": {
     "encoder": 4477,
-    "encoder_pending": 859,
+    "encoder_pending": 861,
     "excel": 986,
     "fumen": 457
   },
-  "needs_encoder": 859,
+  "needs_encoder": 861,
   "v3_abilities": {
     "covered": 5920,
     "by_course": {
@@ -27,7 +27,7 @@
   "duplicate_chart_rows": 250,
   "exact_numeric_dedupe": {
     "duplicate_groups_removed": 798,
-    "duplicate_rows_removed": 4942,
+    "duplicate_rows_removed": 4940,
     "samples": [
       {
         "kept": "大器晩成",

@@ -344,7 +344,13 @@ def make_record(
         for alias in alias_index.get(normalize_title(name), []):
             add_unique_alias(aliases, alias, title)
     forced_normal = is_forced_normal(row)
-    rating_excluded = course.casefold() == "normal" and not forced_normal
+    title_blob_normalized = normalize_title(title_blob(row))
+    special_forced_song = any(
+        normalize_title(title) in title_blob_normalized for title in FORCE_NORMAL_TITLES
+    )
+    rating_excluded = course.casefold() == "normal" or (
+        course.casefold() == "easy" and special_forced_song
+    )
     return {
         "id": record_id,
         "title": title,
