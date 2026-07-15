@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260716-preview-sizing";
+const DATA_VERSION = "20260716-roll-scroll-coordinate";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
@@ -1656,9 +1656,8 @@ function drawCanvasNote(ctx, type, x, y, scale = 1, balloonCount = null, normalR
   const baseRadius = Math.max(2, Number(normalRadius) || 11);
   const isLarge = value === "3" || value === "4" || value === "6" || value === "7" || value === "9";
   // Scroll speed controls position only. The baseline normal-note diameter is set
-  // from an HS 1 sixteenth. A 2px outline adds 1px to either side, so adding 1
-  // after doubling the fill radius makes a large note's visible diameter exactly 2×.
-  const radius = (isLarge ? baseRadius * 2 + 1 : baseRadius) * scale;
+  // from an HS 1 sixteenth; large notes retain the established 1.36× radius.
+  const radius = (isLarge ? baseRadius * 1.36 : baseRadius) * scale;
   if (value === "1" || value === "3") {
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -1748,23 +1747,17 @@ function drawChartPreviewFrame(player) {
   const judgeX = Math.max(112, Math.round(width * 0.16));
   const spawnX = width + 68;
   const baseSpeed = (spawnX - judgeX) / player.baseLeadTime;
-  const speedFactor = (item) => {
-    const itemBpm = Number(item?.bpm);
-    const itemScroll = Number(item?.scroll);
-    const bpmFactor = Number.isFinite(itemBpm) && itemBpm > 0 ? itemBpm / player.baseBpm : 1;
-    const scrollFactor = Number.isFinite(itemScroll) ? Math.max(0.02, Math.abs(itemScroll)) : 1;
-    return bpmFactor * scrollFactor;
-  };
-  const xAt = (item, timeKey = "time") => judgeX + (Number(item?.[timeKey] ?? 0) - current) * baseSpeed * speedFactor(item);
+  // `visual` is the source chart's accumulated scroll coordinate.  Converting
+  // both ends of every object against the same current coordinate keeps a roll
+  // rigid across #SCROLL/BPM changes: its end can never catch up to its head.
+  const pixelsPerVisual = baseSpeed / (player.baseBpm / 60);
+  const currentVisual = timeline.visualAt(current);
+  const xAtVisual = (visual) => judgeX + (Number(visual ?? 0) - currentVisual) * pixelsPerVisual;
+  const xAt = (item) => xAtVisual(item?.visual);
   // A normal note is sized from a 16th at the reference BPM and HS 1.  The 2px
   // outline adds one visible pixel on both sides, so adjacent 16ths just touch
   // at HS 1.  BPM and #SCROLL must not change the note's physical size.
   const normalNoteRadius = Math.max(2, ((15 / player.baseBpm) * baseSpeed) / 2 - 1);
-  // Extremely high #SCROLL values can turn a very short roll into a full-width
-  // rectangle.  Keep its head moving at the actual speed, but cap only the
-  // continuous body rendered by this compact preview.
-  const maxRollBodyWidth = Math.max(normalNoteRadius * 12, Math.round(width * 0.3));
-
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#f6f8fb";
   ctx.fillRect(0, 0, width, height);
@@ -1814,24 +1807,11 @@ function drawChartPreviewFrame(player) {
   }
 
   for (const roll of timeline.rolls) {
-    const x1 = xAt(roll, "startTime");
-    const x2 = xAt(
-      {
-        time: roll.endTime,
-        bpm: roll.endBpm ?? roll.bpm,
-        scroll: roll.endScroll ?? roll.scroll,
-      },
-    );
-    let left = Math.max(judgeX - 12, Math.min(x1, x2));
-    let right = Math.min(width - 24, Math.max(x1, x2));
+    const x1 = xAtVisual(roll.startVisual);
+    const x2 = xAtVisual(roll.endVisual);
+    const left = Math.max(judgeX - 12, Math.min(x1, x2));
+    const right = Math.min(width - 24, Math.max(x1, x2));
     if (right <= judgeX - 12 || left >= width - 24) continue;
-    if (right - left > maxRollBodyWidth) {
-      // Rolls normally extend toward the later event (rightward).  Retain the
-      // visible leading edge for reversed charts as well, instead of filling the
-      // whole lane when the source uses an extreme scroll multiplier.
-      if (x2 >= x1) right = left + maxRollBodyWidth;
-      else left = right - maxRollBodyWidth;
-    }
     ctx.beginPath();
     roundedCanvasRect(ctx, left, laneY - 12, Math.max(1, right - left), 24, 12);
     ctx.fillStyle = "rgba(240,180,41,0.36)";
