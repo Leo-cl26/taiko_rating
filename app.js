@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260716-roll-scroll-coordinate";
+const DATA_VERSION = "20260716-event-scroll-position";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
@@ -1747,13 +1747,16 @@ function drawChartPreviewFrame(player) {
   const judgeX = Math.max(112, Math.round(width * 0.16));
   const spawnX = width + 68;
   const baseSpeed = (spawnX - judgeX) / player.baseLeadTime;
-  // `visual` is the source chart's accumulated scroll coordinate.  Converting
-  // both ends of every object against the same current coordinate keeps a roll
-  // rigid across #SCROLL/BPM changes: its end can never catch up to its head.
-  const pixelsPerVisual = baseSpeed / (player.baseBpm / 60);
-  const currentVisual = timeline.visualAt(current);
-  const xAtVisual = (visual) => judgeX + (Number(visual ?? 0) - currentVisual) * pixelsPerVisual;
-  const xAt = (item) => xAtVisual(item?.visual);
+  // Every object keeps the speed declared by its own event. This is required
+  // for charts that intentionally show different #SCROLL speeds at once.
+  const speedFactor = (item) => {
+    const itemBpm = Number(item?.bpm);
+    const itemScroll = Number(item?.scroll);
+    const bpmFactor = Number.isFinite(itemBpm) && itemBpm > 0 ? itemBpm / player.baseBpm : 1;
+    const scrollFactor = Number.isFinite(itemScroll) ? Math.max(0.02, Math.abs(itemScroll)) : 1;
+    return bpmFactor * scrollFactor;
+  };
+  const xAt = (item, timeKey = "time") => judgeX + (Number(item?.[timeKey] ?? 0) - current) * baseSpeed * speedFactor(item);
   // A normal note is sized from a 16th at the reference BPM and HS 1.  The 2px
   // outline adds one visible pixel on both sides, so adjacent 16ths just touch
   // at HS 1.  BPM and #SCROLL must not change the note's physical size.
@@ -1807,8 +1810,14 @@ function drawChartPreviewFrame(player) {
   }
 
   for (const roll of timeline.rolls) {
-    const x1 = xAtVisual(roll.startVisual);
-    const x2 = xAtVisual(roll.endVisual);
+    const x1 = xAt(roll, "startTime");
+    const x2 = xAt(
+      {
+        time: roll.endTime,
+        bpm: roll.endBpm ?? roll.bpm,
+        scroll: roll.endScroll ?? roll.scroll,
+      },
+    );
     const left = Math.max(judgeX - 12, Math.min(x1, x2));
     const right = Math.min(width - 24, Math.max(x1, x2));
     if (right <= judgeX - 12 || left >= width - 24) continue;
