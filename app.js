@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260716-chart-player-mobile";
+const DATA_VERSION = "20260716-balloon-label";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
@@ -1707,10 +1707,11 @@ function drawCanvasNote(ctx, type, x, y, scale = 1, balloonCount = null, normalR
     ctx.fill();
     if (Number.isFinite(Number(balloonCount)) && Number(balloonCount) > 0) {
       const label = String(Math.round(Number(balloonCount)));
-      const fontSize = label.length >= 3 ? 9 : label.length === 2 ? 11 : 12;
+      // Single digits are intentionally a little taller than the balloon; multi-digit labels shrink only enough to stay legible.
+      const fontSize = Math.max(12, radius * (label.length >= 3 ? 1.5 : label.length === 2 ? 1.86 : 2.18));
       ctx.save();
       ctx.fillStyle = "#4d3200";
-      ctx.font = `700 ${Math.max(7, fontSize * scale)}px "Microsoft YaHei", "Segoe UI", Arial, sans-serif`;
+      ctx.font = `900 ${fontSize}px "Microsoft YaHei", "Segoe UI", Arial, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(label, x, y + 0.5 * scale);
