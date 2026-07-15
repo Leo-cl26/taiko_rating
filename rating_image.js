@@ -93,8 +93,8 @@
     complex: { threshold: 13.4188645707724, fullMedian: 13.7662826486079, fullWeighted: 14.2622361946173 },
   };
 
-  const IMAGE_W = 1440;
-  const IMAGE_H = 1320;
+  const IMAGE_W = 1600;
+  const IMAGE_H = 1600;
   const CLASSIC_BEST_COUNT = 20;
 
   function clamp(value, min, max) {
@@ -431,9 +431,9 @@
     return {
       1: "#e53935",
       2: "#70ad47",
-      3: "#258bd2",
-      4: "#e83e8c",
-      5: "#7b3fb2",
+      3: "#414A2C",
+      4: "#DB1685",
+      5: "#7232DB",
     }[String(level)] ?? "#8b949e";
   }
 
@@ -492,37 +492,51 @@
   function drawBackground(ctx) {
     ctx.fillStyle = "#f7f5f2";
     ctx.fillRect(0, 0, IMAGE_W, IMAGE_H);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(42, 42, IMAGE_W - 84, IMAGE_H - 84);
-    ctx.strokeStyle = "#ded8d1";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(42, 42, IMAGE_W - 84, IMAGE_H - 84);
+    fillRounded(ctx, 35, 35, IMAGE_W - 70, IMAGE_H - 70, 30, "#ffffff", "#ded8d1", 3);
+  }
+
+  function drawMetricCard(ctx, box, label, value, color, digits = 2) {
+    const [left, top, right, bottom] = box;
+    fillRounded(ctx, left, top, right - left, bottom - top, 18, "#fffdfb", "#ded8d1", 2);
+    fillRounded(ctx, left, top, 8, bottom - top, 4, color);
+    drawText(ctx, label, left + 34, top + 54, { size: 25, weight: "700", color });
+    const text = Number(value).toFixed(digits);
+    drawText(ctx, text, right - 30, bottom - 45, {
+      size: 60,
+      weight: "700",
+      color,
+      align: "right",
+      baseline: "middle",
+    });
   }
 
   function drawHeader(ctx, classic, matchedCount) {
-    drawText(ctx, "Taiko Rating", 96, 116, { size: 42, weight: "700", color: "#202225" });
-
-    fillRounded(ctx, 96, 210, 470, 142, 8, "#fff7f4", "#e6d7d1");
-    drawText(ctx, "综合 Rating", 126, 260, { size: 27, weight: "700", color: "#a23b35" });
-    drawText(ctx, formatNumber(classic.rating), 520, 292, { size: 58, weight: "700", color: "#a23b35", align: "right", baseline: "middle" });
-    drawText(ctx, `历史段位参考：${classic.danLevel}`, 126, 330, { size: 18, color: "#7b7470" });
-
-    fillRounded(ctx, 96, 382, 470, 142, 8, "#f2f8fb", "#d0dde4");
-    drawText(ctx, "推荐歌曲定数", 126, 432, { size: 27, weight: "700", color: "#246f92" });
-    drawText(ctx, formatNumber(classic.recommendedConstant), 520, 464, { size: 58, weight: "700", color: "#246f92", align: "right", baseline: "middle" });
-
-    fillRounded(ctx, 96, 554, 470, 92, 8, "#ffffff", "#ded8d1");
-    drawText(ctx, "匹配谱面", 126, 608, { size: 23, weight: "700", color: "#4d4743" });
-    drawText(ctx, `${matchedCount}`, 522, 608, { size: 36, weight: "700", color: "#4d4743", align: "right", baseline: "middle" });
+    drawText(ctx, "TAIKO RATING", 85, 125, { size: 48, weight: "700", color: "#252525" });
+    drawText(ctx, new Date().toLocaleString("zh-CN", { hour12: false }), IMAGE_W - 85, 113, {
+      size: 20,
+      color: "#6b7280",
+      align: "right",
+    });
+    drawMetricCard(ctx, [85, 205, 570, 385], "综合 Rating / B20", classic.rating, "#a23b35");
+    drawMetricCard(ctx, [85, 410, 570, 590], "推荐歌曲定数", classic.recommendedConstant, "#246f92");
+    drawMetricCard(ctx, [85, 615, 570, 795], "谱面匹配", matchedCount, "#4d4743", 0);
   }
 
   function drawRadar(ctx, dimensions, tendencies) {
-    const cx = 1010;
-    const cy = 408;
-    const radius = 180;
-    const values = DIMENSIONS.map((dim) => tendencies[dim.key] || 50);
-
-    drawText(ctx, "能力倾向（中心 = 同水平）", 720, 116, { size: 30, weight: "700", color: "#202225" });
+    const left = 595;
+    const top = 205;
+    const right = 1515;
+    const bottom = 795;
+    const cx = (left + right) / 2;
+    const cy = top + 330;
+    const radius = 165;
+    fillRounded(ctx, left, top, right - left, bottom - top, 18, "#fffdfb", "#ded8d1", 2);
+    drawText(ctx, "能力倾向（中心 = 同 Rating 基准）", left + 28, top + 54, { size: 27, weight: "700", color: "#252525" });
+    drawText(ctx, "绝对六维 · 同水平相对倾向", right - 28, top + 52, {
+      size: 16,
+      color: "#6b7280",
+      align: "right",
+    });
 
     ctx.strokeStyle = "#ded8d1";
     ctx.lineWidth = 1.2;
@@ -566,12 +580,12 @@
 
     DIMENSIONS.forEach((dim, index) => {
       const angle = -Math.PI / 2 + (Math.PI * 2 * index) / DIMENSIONS.length;
-      const lx = cx + Math.cos(angle) * (radius + 116);
-      const ly = cy + Math.sin(angle) * (radius + 82);
-      drawText(ctx, dim.label, lx, ly - 12, { size: 22, weight: "700", color: "#4d4743", align: "center" });
-      drawText(ctx, `${formatNumber(dimensions[dim.key])} · ${Math.round(tendencies[dim.key] || 50)}`, lx, ly + 22, {
-        size: 25,
-        color: "#7b7470",
+      const lx = cx + Math.cos(angle) * (radius + 60);
+      const ly = cy + Math.sin(angle) * (radius + 60);
+      drawText(ctx, dim.label, lx, ly - 9, { size: 21, weight: "700", color: "#252525", align: "center", baseline: "middle" });
+      drawText(ctx, `${formatNumber(dimensions[dim.key])} · ${Math.round(tendencies[dim.key] || 50)}`, lx, ly + 20, {
+        size: 18,
+        color: "#6b7280",
         align: "center",
         baseline: "middle",
       });
@@ -579,15 +593,15 @@
   }
 
   function drawSection(ctx, title, rows, y) {
-    fillRounded(ctx, 78, y, IMAGE_W - 156, 520, 8, "#ffffff", "#ded8d1");
-    drawText(ctx, title, 116, y + 54, { size: 30, weight: "700", color: "#2b2826" });
+    drawText(ctx, title, 85, y + 36, { size: 33, weight: "700", color: "#a23b35" });
+    drawText(ctx, "同一歌曲的不同难度分别计入", 1515, y + 34, { size: 18, color: "#6b7280", align: "right" });
 
-    const cardW = 236;
-    const cardH = 78;
-    const startX = 102;
-    const startY = y + 98;
-    const gapX = 16;
-    const gapY = 12;
+    const cardW = 276;
+    const cardH = 122;
+    const startX = 85;
+    const startY = y + 58;
+    const gapX = 17;
+    const gapY = 14;
     rows.forEach((row, index) => {
       const col = index % 5;
       const line = Math.floor(index / 5);
@@ -597,37 +611,51 @@
 
   function drawSongCard(ctx, row, index, x, y, w, h) {
     const accent = levelColor(row.level);
-    fillRounded(ctx, x, y, w, h, 6, "#fbfaf8", "#ddd6cf");
+    fillRounded(ctx, x, y, w, h, 12, "#fffdfb", "#ddd6cf", 2);
     ctx.fillStyle = accent;
-    ctx.fillRect(x, y, 5, h);
+    ctx.fillRect(x, y, 7, h);
+    ctx.strokeStyle = "#e6dfd8";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 88, y + 14);
+    ctx.lineTo(x + 88, y + h - 14);
+    ctx.stroke();
 
     const value = row.classicSingle;
-    drawText(ctx, String(index + 1).padStart(2, "0"), x + 16, y + 18, { size: 13, weight: "700", color: "#b0a9a4" });
-    drawText(ctx, formatNumber(value), x + 16, y + 51, {
-      size: 22,
+    const ratingY = y + h / 2;
+    drawText(ctx, String(index + 1).padStart(2, "0"), x + 18, y + 14, {
+      size: 18,
+      weight: "700",
+      color: "#9f9892",
+      baseline: "top",
+    });
+    drawText(ctx, formatNumber(value), x + 18, ratingY, {
+      size: 32,
       weight: "700",
       color: "#a23b35",
       baseline: "middle",
     });
-    ctx.strokeStyle = "#e4ddd7";
-    ctx.beginPath();
-    ctx.moveTo(x + 80, y + 10);
-    ctx.lineTo(x + 80, y + h - 10);
-    ctx.stroke();
+    const goodRate = Number(row.goodRate);
+    drawText(ctx, `良率 ${Number.isFinite(goodRate) ? `${(goodRate * 100).toFixed(1)}%` : "--"}`, x + 18, ratingY + 36, {
+      size: 12,
+      color: "#6b7280",
+      baseline: "middle",
+    });
 
-    drawFitText(ctx, row.title, x + 94, y + 22, 98, { size: 16, weight: "700", color: "#2b2826" });
-    drawText(ctx, `${levelName(row.level)}  定数 ${row.constant.toFixed(1)}`, x + 94, y + 44, {
-      size: 13,
+    drawFitText(ctx, row.title, x + 103, y + 14, 155, { size: 20, weight: "700", color: "#252525", baseline: "top" });
+    drawText(ctx, `${levelName(row.level)}  定数 ${row.constant.toFixed(1)}`, x + 103, y + 48, {
+      size: 16,
       weight: "700",
       color: accent,
+      baseline: "top",
     });
-    const goodRate = Number(row.goodRate);
-    drawText(ctx, `良率 ${Number.isFinite(goodRate) ? `${(goodRate * 100).toFixed(1)}%` : "--"}`, x + 94, y + 65, {
-      size: 12,
-      color: "#7b7470",
-    });
-    drawText(ctx, scoreRankLabel(row, row.highScore), x + w - 12, y + 48, {
+    drawText(ctx, formatScore(row.highScore), x + 103, y + 82, {
       size: 14,
+      color: "#6b7280",
+      baseline: "top",
+    });
+    drawText(ctx, scoreRankLabel(row, row.highScore), x + w - 12, ratingY, {
+      size: 17,
       weight: "700",
       color: rankPaint(ctx, row, x + w - 82, 64),
       align: "right",
@@ -647,7 +675,13 @@
     drawBackground(ctx);
     drawHeader(ctx, classic, classicRows.length);
     drawRadar(ctx, classic.dimensions, classic.tendencies);
-    drawSection(ctx, "综合 Rating B20", classic.b20, 730);
+    drawSection(ctx, "综合 Rating B20", classic.b20, 845);
+    drawText(ctx, `匹配 ${classicRows.length} · Taiko Rating Web`, IMAGE_W / 2, IMAGE_H - 55, {
+      size: 19,
+      color: "#6b7280",
+      align: "center",
+      baseline: "middle",
+    });
 
     return {
       classic,

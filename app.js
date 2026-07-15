@@ -1,5 +1,5 @@
 const API_BASE = "https://kinoko.zorua.cn/api/v1";
-const DATA_VERSION = "20260715-classic-rating-constant";
+const DATA_VERSION = "20260715-v3-web-layout";
 const FEEDBACK_API_BASE = window.TAIKO_FEEDBACK_API_BASE || "";
 const CHART_PAGE_SIZE = 10;
 const RECOMMEND_COUNT = 20;
@@ -167,9 +167,9 @@ function levelColor(level) {
   return {
     1: "#e53935",
     2: "#70ad47",
-    3: "#258bd2",
-    4: "#e83e8c",
-    5: "#7b3fb2",
+    3: "#414A2C",
+    4: "#DB1685",
+    5: "#7232DB",
   }[String(level)] ?? "#8b949e";
 }
 
@@ -778,63 +778,78 @@ function renderRatingTable(summary = state.ratingSummary) {
   }
 
   const width = 1900;
-  const height = 1540;
+  const height = 1520;
   const margin = 34;
-  const gap = 22;
-  const columnWidth = (width - margin * 2 - gap) / 2;
-  const rowHeight = 102;
-  const rowGap = 8;
-  const sectionY = 320;
+  const overviewTop = 44;
+  const overviewBottom = 580;
+  const leftWidth = 560;
+  const metricGap = 16;
+  const metricHeight = (overviewBottom - overviewTop - metricGap * 2) / 3;
+  const radarX = margin + leftWidth + 24;
+  const radarWidth = width - margin - radarX;
+  const sectionY = 620;
+  const cardGap = 14;
+  const cardWidth = (width - margin * 2 - cardGap * 4) / 5;
+  const cardHeight = 180;
+  const rowGap = 12;
+  const cardsStartY = sectionY + 84;
+
+  const metricCardSvg = (index, label, value, color) => {
+    const y = overviewTop + index * (metricHeight + metricGap);
+    return `
+      <g>
+        <rect x="${margin}" y="${y}" width="${leftWidth}" height="${metricHeight}" rx="14" fill="#fffdfb" stroke="#ddd6cf" stroke-width="2" />
+        <rect x="${margin}" y="${y}" width="9" height="${metricHeight}" rx="4" fill="${color}" />
+        <text x="${margin + 36}" y="${y + 56}" font-size="28" font-weight="800" fill="${color}">${escapeHtml(label)}</text>
+        <text x="${margin + leftWidth - 34}" y="${y + metricHeight - 34}" font-size="64" font-weight="800" fill="${color}" text-anchor="end">${escapeHtml(value)}</text>
+      </g>
+    `;
+  };
+
   const topCards = `
-    <g>
-      <rect x="${margin}" y="44" width="340" height="118" rx="8" fill="#fff7f4" stroke="#e6d7d1" />
-      <text x="${margin + 24}" y="86" font-size="20" font-weight="800" fill="#a23b35">综合 Rating / B20</text>
-      <text x="${margin + 316}" y="126" font-size="42" font-weight="800" fill="#a23b35" text-anchor="end">${escapeHtml(formatRatingValue(summary.classic?.rating))}</text>
-
-      <rect x="${margin}" y="178" width="340" height="108" rx="8" fill="#f2f8fb" stroke="#d0dde4" />
-      <text x="${margin + 24}" y="220" font-size="20" font-weight="800" fill="#246f92">推荐歌曲定数</text>
-      <text x="${margin + 316}" y="258" font-size="38" font-weight="800" fill="#246f92" text-anchor="end">${escapeHtml(formatRatingValue(summary.recommendedConstant))}</text>
-
-      <rect x="${margin + 370}" y="44" width="260" height="242" rx="8" fill="#ffffff" stroke="#d9dee5" />
-      <text x="${margin + 394}" y="88" font-size="20" font-weight="800" fill="#20252b">匹配谱面</text>
-      <text x="${margin + 606}" y="176" font-size="62" font-weight="800" fill="#20252b" text-anchor="end">${escapeHtml(summary.matchedCount ?? 0)}</text>
-    </g>
+    ${metricCardSvg(0, "综合 Rating / B20", formatRatingValue(summary.classic?.rating), "#a23b35")}
+    ${metricCardSvg(1, "推荐歌曲定数", formatRatingValue(summary.recommendedConstant), "#246f92")}
+    ${metricCardSvg(2, "谱面匹配", String(summary.matchedCount ?? 0), "#4d4743")}
   `;
   const radarBlock = `
     <g>
-      <text x="1070" y="82" font-size="26" font-weight="800" fill="#20252b">能力倾向（中心=同水平）</text>
-      ${radarSvg(summary.classic?.tendencies || {}, summary.classic?.dimensions || {}, 1510, 170, 96, "#a23b35")}
+      <rect x="${radarX}" y="${overviewTop}" width="${radarWidth}" height="${overviewBottom - overviewTop}" rx="14" fill="#fffdfb" stroke="#ddd6cf" stroke-width="2" />
+      <text x="${radarX + 30}" y="${overviewTop + 52}" font-size="30" font-weight="800" fill="#20252b">能力倾向（中心 = 同 Rating 基准）</text>
+      <text x="${width - margin - 28}" y="${overviewTop + 52}" font-size="17" fill="#66717d" text-anchor="end">绝对六维 · 同水平相对倾向</text>
+      ${radarSvg(summary.classic?.tendencies || {}, summary.classic?.dimensions || {}, radarX + radarWidth / 2, 332, 145, "#a23b35")}
     </g>
   `;
 
   const rowSvg = rows.slice(0, 20).map((item, rankIndex) => {
     const row = item.row;
-    const column = Math.floor(rankIndex / 10);
-    const line = rankIndex % 10;
-    const x = margin + column * (columnWidth + gap);
-    const rowY = sectionY + 82 + line * (rowHeight + rowGap);
+    const column = rankIndex % 5;
+    const line = Math.floor(rankIndex / 5);
+    const x = margin + column * (cardWidth + cardGap);
+    const rowY = cardsStartY + line * (cardHeight + rowGap);
     const selected = state.selectedRatingIndex === rankIndex;
     const accent = levelColor(row.level);
     const goodRate = Number(row.goodRate);
     return `
-      <g class="rating-svg-row" data-rating-index="${rankIndex}" tabindex="0" role="button">
-        <rect x="${x}" y="${rowY}" width="${columnWidth}" height="${rowHeight}" rx="8" fill="${selected ? "#fff7f4" : "#ffffff"}" stroke="${selected ? "#a23b35" : "#d9dee5"}" stroke-width="${selected ? 2 : 1}" />
-        <rect x="${x}" y="${rowY}" width="7" height="${rowHeight}" rx="3" fill="${accent}" />
-        <text x="${x + 20}" y="${rowY + 54}" font-size="18" font-weight="700" fill="#8b949e">${String(rankIndex + 1).padStart(2, "0")}</text>
-        <text x="${x + 62}" y="${rowY + 28}" font-size="18" font-weight="700" fill="#20252b">${escapeHtml(truncateText(row.title, 30))}</text>
-        <text x="${x + 62}" y="${rowY + 54}" font-size="14" font-weight="700" fill="${accent}">${escapeHtml(levelName(row.level))} · 定数 ${escapeHtml(Number(row.constant).toFixed(1))}</text>
-        <text x="${x + 62}" y="${rowY + 79}" font-size="13" fill="#66717d">良率 ${Number.isFinite(goodRate) ? `${(goodRate * 100).toFixed(1)}%` : "--"} · ${escapeHtml(formatScore(row.highScore))}</text>
-        <text x="${x + columnWidth - 126}" y="${rowY + 55}" font-size="16" font-weight="800" fill="${scoreRankSvgFill(row.bestScoreRank, row.highScore)}" text-anchor="end">${escapeHtml(scoreRankLabel(row.bestScoreRank, row.highScore))}</text>
-        <text x="${x + columnWidth - 22}" y="${rowY + 58}" font-size="25" font-weight="800" fill="#a23b35" text-anchor="end">${escapeHtml(formatSingle(item.displaySingle))}</text>
+      <g class="rating-svg-row" data-rating-index="${rankIndex}" tabindex="0" role="button" aria-label="第 ${rankIndex + 1} 名 ${escapeHtml(row.title)}">
+        <rect x="${x}" y="${rowY}" width="${cardWidth}" height="${cardHeight}" rx="12" fill="${selected ? "#fff7f4" : "#fffdfb"}" stroke="${selected ? "#a23b35" : "#ddd6cf"}" stroke-width="${selected ? 3 : 2}" />
+        <rect x="${x}" y="${rowY}" width="8" height="${cardHeight}" rx="4" fill="${accent}" />
+        <line x1="${x + 112}" y1="${rowY + 18}" x2="${x + 112}" y2="${rowY + cardHeight - 18}" stroke="#e6dfd8" stroke-width="2" />
+        <text x="${x + 22}" y="${rowY + 35}" font-size="20" font-weight="800" fill="#9f9892">${String(rankIndex + 1).padStart(2, "0")}</text>
+        <text x="${x + 22}" y="${rowY + 101}" font-size="38" font-weight="800" fill="#a23b35">${escapeHtml(formatSingle(item.displaySingle))}</text>
+        <text x="${x + 22}" y="${rowY + 143}" font-size="14" fill="#66717d">良率 ${Number.isFinite(goodRate) ? `${(goodRate * 100).toFixed(1)}%` : "--"}</text>
+        <text x="${x + 132}" y="${rowY + 42}" font-size="24" font-weight="800" fill="#20252b">${escapeHtml(truncateText(row.title, 18))}</text>
+        <text x="${x + 132}" y="${rowY + 82}" font-size="18" font-weight="800" fill="${accent}">${escapeHtml(levelName(row.level))} · 定数 ${escapeHtml(Number(row.constant).toFixed(1))}</text>
+        <text x="${x + 132}" y="${rowY + 125}" font-size="16" fill="#66717d">${escapeHtml(formatScore(row.highScore))}</text>
+        <text x="${x + cardWidth - 18}" y="${rowY + 99}" font-size="19" font-weight="800" fill="${scoreRankSvgFill(row.bestScoreRank, row.highScore)}" text-anchor="end">${escapeHtml(scoreRankLabel(row.bestScoreRank, row.highScore))}</text>
       </g>
     `;
   }).join("");
 
   const sectionSvg = `
     <g>
-      <rect x="${margin}" y="${sectionY}" width="${width - margin * 2}" height="${height - sectionY - 30}" rx="10" fill="#fbfcfd" stroke="#d9dee5" />
-      <text x="${margin + 22}" y="${sectionY + 44}" font-size="28" font-weight="800" fill="#a23b35">综合 Rating B20</text>
-      <text x="${width - margin - 22}" y="${sectionY + 44}" font-size="16" fill="#66717d" text-anchor="end">同一歌曲的松、鬼、里等不同难度分别计入</text>
+      <rect x="${margin}" y="${sectionY}" width="${width - margin * 2}" height="${height - sectionY - 30}" rx="14" fill="#fbfcfd" stroke="#d9dee5" stroke-width="2" />
+      <text x="${margin + 24}" y="${sectionY + 54}" font-size="36" font-weight="800" fill="#a23b35">综合 Rating B20</text>
+      <text x="${width - margin - 24}" y="${sectionY + 52}" font-size="18" fill="#66717d" text-anchor="end">同一歌曲的不同难度分别计入 · 点击卡片查看新六维详情</text>
       ${rowSvg}
     </g>
   `;
@@ -852,8 +867,8 @@ function renderRatingTable(summary = state.ratingSummary) {
           <stop offset="100%" stop-color="#9c36b5" />
         </linearGradient>
       </defs>
-      <rect width="${width}" height="${height}" fill="#f7fafc" />
-      <text x="${margin}" y="24" font-size="14" fill="#66717d">点击任意歌曲查看详细数值</text>
+      <rect width="${width}" height="${height}" fill="#f7f5f2" />
+      <text x="${margin}" y="26" font-size="15" fill="#66717d">综合 Rating、推荐定数与 V3 六维能力</text>
       ${topCards}
       ${radarBlock}
       ${sectionSvg}
@@ -873,39 +888,90 @@ function renderRatingDetail(item) {
   const goodRate = classic?.goodRate;
   const dims = classic?.dimensions || {};
   const f = row.features || {};
-  const items = [
-    ["Rating对象", "综合 Rating B20"],
-    ["曲名", row.title],
-    ["匹配谱面", row.constantTitle],
-    ["难度", levelName(row.level)],
-    ["来源", sourceLabel(row.chartSource, row.needsEncoder)],
-    ["定数", row.constant.toFixed(1)],
-    ["分数", formatScore(row.highScore)],
-    ["评价", scoreRankLabel(row.bestScoreRank, row.highScore)],
-    ["通关次数", formatLoose(row.clearCount, 0)],
-    ["良 / 可 / 不可", `${row.good} / ${row.ok} / ${row.ng}`],
+  const chartAbility = row.ability || {};
+  const accent = levelColor(row.level);
+  const rankLabel = scoreRankLabel(row.bestScoreRank, row.highScore);
+  const rankColor = scoreRankColor(row.bestScoreRank, row.highScore);
+  const abilitySource = Number.isFinite(Number(chartAbility.main)) ? "V3 谱面能力模型" : "谱面特征兼容回退";
+  const abilityHints = {
+    stamina: "持续处理与耐力",
+    handspeed: "连续手速处理",
+    burst: "短时高密度爆发",
+    accuracy: "当前成绩精度表现",
+    rhythm: "节奏与变速处理",
+    complex: "复合与不可控制",
+  };
+  const abilityCards = RADAR_DIMS.map((dim) => {
+    const chartValue = Number(chartAbility[dim.key]);
+    const sourceText = dim.key === "accuracy"
+      ? "由本次良率与不可率计算"
+      : Number.isFinite(chartValue)
+        ? `谱面能力定数 ${chartValue.toFixed(2)}`
+        : "使用谱面特征回退";
+    return `
+      <article class="rating-ability-card">
+        <div class="rating-ability-label"><span>${escapeHtml(dim.label)}</span><small>${escapeHtml(abilityHints[dim.key])}</small></div>
+        <strong>${escapeHtml(formatNumber(dims[dim.key]))}</strong>
+        <p>${escapeHtml(sourceText)}</p>
+      </article>
+    `;
+  }).join("");
+  const kpis = [
+    ["谱面定数", Number(row.constant).toFixed(1)],
+    ["本次分数", formatScore(row.highScore)],
     ["良率", percent(goodRate)],
-    ["当前单曲R", formatSingle(item.displaySingle)],
-    ["单曲综合R", classic ? classic.classicSingle.toFixed(2) : "--"],
+    ["单曲综合 R", classic ? classic.classicSingle.toFixed(2) : "--"],
+    ["良 / 可 / 不可", `${row.good} / ${row.ok} / ${row.ng}`],
+    ["通关次数", formatLoose(row.clearCount, 0)],
+  ];
+  const detailItems = [
+    ["Rating 对象", "综合 Rating B20"],
+    ["匹配谱面", row.constantTitle],
+    ["数据来源", sourceLabel(row.chartSource, row.needsEncoder)],
+    ["能力来源", abilitySource],
     ["定数得点 x", classic ? classic.x.toFixed(2) : "--"],
     ["良率表现 y", classic ? classic.y.toFixed(2) : "--"],
-    ["体力", formatNumber(dims.stamina)],
-    ["手速", formatNumber(dims.handspeed)],
-    ["爆发", formatNumber(dims.burst)],
-    ["精度", formatNumber(dims.accuracy)],
-    ["节奏", formatNumber(dims.rhythm)],
-    ["复合", formatNumber(dims.complex)],
     ["平均密度", formatLoose(f.avg_density)],
     ["瞬间密度", formatLoose(f.peak_density)],
-    ["BPM变化", formatLoose(f.bpm_change)],
-    ["HS变化", formatLoose(f.hs_change)],
+    ["BPM 变化", formatLoose(f.bpm_change)],
+    ["HS 变化", formatLoose(f.hs_change)],
+    ["复合特征", formatLoose(f.complex)],
     ["combo", formatLoose(row.chartCombo, 0)],
   ];
 
   els.ratingDetail.className = "detail-panel";
-  els.ratingDetail.innerHTML = `<div class="detail-grid">${items
-    .map(([label, value]) => `<div class="detail-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
-    .join("")}</div>`;
+  els.ratingDetail.innerHTML = `
+    <div class="rating-detail-hero" style="--difficulty-color: ${accent}">
+      <div class="rating-detail-heading">
+        <div class="rating-detail-badges">
+          <span style="color: ${accent}; border-color: ${accent}55; background: ${accent}12">${escapeHtml(levelName(row.level))}</span>
+          <span>${escapeHtml(sourceLabel(row.chartSource, row.needsEncoder))}</span>
+        </div>
+        <h3>${escapeHtml(row.title)}</h3>
+        <p>匹配谱面：${escapeHtml(row.constantTitle || row.title)} · ${escapeHtml(abilitySource)}</p>
+      </div>
+      <div class="rating-detail-score">
+        <span>单曲综合 Rating</span>
+        <strong>${escapeHtml(formatSingle(item.displaySingle))}</strong>
+        <em style="color: ${rankColor}">${escapeHtml(rankLabel)}</em>
+      </div>
+    </div>
+    <div class="rating-detail-kpis">${kpis
+      .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+      .join("")}</div>
+    <section class="rating-detail-section">
+      <div class="rating-detail-section-head">
+        <div><h3>本次成绩新六维</h3><p>按当前成绩与 V3 谱面能力共同计算；数值为绝对能力，不是玩家百分位。</p></div>
+      </div>
+      <div class="rating-detail-ability-grid">${abilityCards}</div>
+    </section>
+    <section class="rating-detail-section compact">
+      <div class="rating-detail-section-head"><div><h3>成绩、公式与谱面特征</h3><p>用于解释单曲综合 Rating 与六维结果。</p></div></div>
+      <div class="detail-grid">${detailItems
+        .map(([label, value]) => `<div class="detail-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+        .join("")}</div>
+    </section>
+  `;
 }
 
 async function fetchScores() {

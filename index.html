@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Taiko Rating</title>
-    <link rel="stylesheet" href="styles.css?v=20260706-feedback-inline" />
+    <link rel="stylesheet" href="styles.css?v=20260715-v3-web-layout" />
   </head>
   <body>
     <main class="app-shell">
@@ -284,7 +284,7 @@
         <div class="modal-head">
           <div>
             <span>综合 Rating 规则</span>
-            <h2 id="classicRuleModalTitle">旧公式与六维</h2>
+            <h2 id="classicRuleModalTitle">综合 Rating 与 V3 新六维</h2>
           </div>
           <button id="classicRuleModalClose" class="modal-close" type="button">关闭</button>
         </div>
@@ -296,9 +296,9 @@
             <p>定数得点是把谱面定数换算成旧公式内部难度分的结果。它不是原始定数，而是“这首谱面本身有多难”的非线性分值，越高定数增长越快。</p>
             <p>复合数值表示谱面里需要手顺处理的复合配置强度，主要描述长复合、复杂复合、复合密集段带来的处理压力。</p>
             <p>咚咔复杂度表示红蓝音符类型切换的复杂程度，越高说明咚/咔交替、音色切换和识别负担越重；它会参与节奏处理维度，而不是直接等同于复合处理。</p>
-            <h3>六维数据</h3>
-            <p>六维优先使用 Sakura Bot v2 谱面常数，分别表示体力、持续手速、短时爆发、精度、节奏与复合。轴旁数值表示专项绝对 Rating，六边形形状表示相对同 Rating 基准的能力倾向；困难及以下谱面使用现有谱面特征兼容计算。</p>
-            <p>每个维度都会对可计入歌曲单独取 B20，再固定除以 20，所以六维不是同一批歌的拆解，而是各维度各自的最佳二十首。</p>
+            <h3>V3 新六维</h3>
+            <p>六维优先使用谱面库内嵌的 V3 能力定数，分别表示体力、持续手速、短时爆发、精度、节奏与复合。体力、手速、爆发、节奏与复合会把对应谱面能力定数和本次良率带入单曲公式；精度还会结合不可率与综合表现。没有 V3 数据的低难度谱面使用现有谱面特征兼容计算。</p>
+            <p>每个维度独立取 Best 15，并按前五首 1.0、中间五首 0.8、后五首 0.6 加权。轴旁小数是专项绝对能力；六边形以综合 Rating 附近谱面的中位数和 MAD 为基准，50 表示“同水平典型”，不是玩家百分位。样本较少时倾向值会向 50 收缩。</p>
           </div>
         </div>
       </section>
@@ -327,7 +327,7 @@
     <script>
       window.TAIKO_FEEDBACK_API_BASE = "https://taiko-rating-feedback.mmtumr.workers.dev";
     </script>
-    <script src="rating_image.js?v=20260715-classic-rating-constant"></script>
-    <script src="app.js?v=20260715-classic-rating-constant"></script>
+    <script src="rating_image.js?v=20260715-v3-web-layout"></script>
+    <script src="app.js?v=20260715-v3-web-layout"></script>
   </body>
 </html>
