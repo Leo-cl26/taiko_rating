@@ -1337,6 +1337,14 @@ body.modal-open {
   box-shadow: var(--shadow);
 }
 
+/* The component classes set display:grid, so explicitly preserve the native
+   hidden attribute after the player has finished loading. */
+.fumen-loading[hidden],
+.fumen-error[hidden],
+#fumenContent[hidden] {
+  display: none;
+}
+
 .fumen-error {
   color: #8f1f24;
   white-space: pre-line;
