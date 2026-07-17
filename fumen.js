@@ -1,10 +1,11 @@
-const FUMEN_DATA_VERSION = "20260717-per-song-preview-v2";
+const FUMEN_DATA_VERSION = "20260717-audio-playback-v1";
 const COURSE_ORDER = { Easy: 1, Normal: 2, Hard: 3, Oni: 4, Edit: 5 };
 const COURSE_COLORS = { Easy: "#e53935", Normal: "#8cac53", Hard: "#414a2c", Oni: "#db1685", Edit: "#7232db" };
 
 const fumenState = {
   previews: new Map(),
   audioConfig: { base_url: "" },
+  audioManifest: { objects: {} },
   songKey: "",
   songCharts: [],
   selectedChart: null,
@@ -102,11 +103,26 @@ function audioUrl(audio) {
   const sourcePath = String(audio?.path || "").replaceAll("\\", "/").replace(/^\/+/, "");
   if (!base || !sourcePath) return "";
   try {
-    const encodedPath = sourcePath.split("/").map((part) => encodeURIComponent(part)).join("/");
-    return new URL(encodedPath, `${base.replace(/\/+$/, "")}/`).href;
+    const mapped = fumenState.audioManifest?.objects?.[sourcePath];
+    const objectPath = String(mapped?.key || sourcePath).replaceAll("\\", "/").replace(/^\/+/, "");
+    const baseUrl = new URL(`${base.replace(/\/+$/, "")}/`);
+    if (window.location.protocol === "https:" && baseUrl.protocol !== "https:") return "";
+    const encodedPath = objectPath.split("/").map((part) => encodeURIComponent(part)).join("/");
+    return new URL(encodedPath, baseUrl).href;
   } catch {
     return "";
   }
+}
+
+function audioAvailabilityNote(audio, source) {
+  if (!audio) return "该谱面未声明可用的音源。";
+  const base = String(fumenState.audioConfig?.base_url || "").trim();
+  if (!base) return "音源等待部署；谱面仍可无音乐播放。";
+  if (window.location.protocol === "https:" && base.startsWith("http://")) {
+    return "音源 CDN 尚未启用 HTTPS；为避免混合内容，音乐暂不加载。";
+  }
+  if (!source) return "音源映射尚未生成；谱面仍可无音乐播放。";
+  return `音画同步已启用${Number(audio.offset) ? `（TJA OFFSET ${Number(audio.offset).toFixed(3)}s）` : ""}`;
 }
 
 function renderSongPage(preserveTime = 0) {
@@ -139,9 +155,7 @@ function renderSongPage(preserveTime = 0) {
   ]
     .map(([label, value]) => `<div><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
     .join("");
-  const audioNote = audioSource
-    ? `音画同步已启用${Number(audio?.offset) ? `（TJA OFFSET ${Number(audio.offset).toFixed(3)}s）` : ""}`
-    : "音源等待部署；谱面仍可无音乐播放。";
+  const audioNote = audioAvailabilityNote(audio, audioSource);
 
   fumenEls.content.innerHTML = `
     <section class="fumen-hero">
@@ -379,6 +393,10 @@ async function initializeFumenPage() {
     const pageCharts = Array.isArray(page?.charts) ? page.charts : [];
     fumenState.previews = new Map(pageCharts.map((item) => [item?.chart?.id, item?.preview]).filter(([id, preview]) => id && preview));
     fumenState.audioConfig = config && typeof config === "object" ? config : { base_url: "" };
+    const manifestPath = String(fumenState.audioConfig.manifest_url || "").trim();
+    if (manifestPath) {
+      fumenState.audioManifest = await fetchJson(manifestPath, { objects: {} }).catch(() => ({ objects: {} }));
+    }
     fumenState.songKey = songKey;
     fumenState.songCharts = findSongCharts(pageCharts.map((item) => item?.chart).filter(Boolean), songKey).filter((chart) => fumenState.previews.has(chart.id));
     if (!fumenState.songCharts.length) { showError(`找不到“${songKey}”对应的可预览歌曲。`); return; }

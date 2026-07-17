@@ -47,18 +47,36 @@ image reply.
 Audio files deliberately stay out of this GitHub Pages repository: the local
 ESE collection is about 10 GiB. `scripts/generate_local_chart_previews.py`
 records the source-relative audio path and TJA `OFFSET` for every preview in
-`data/local_chart_previews.json`. After uploading that directory tree to a
-CORS-enabled public object-storage/CDN origin, set its root URL in
-`data/audio_config.json`, for example:
+`data/local_chart_previews.json`. The checked-in `audio_manifest.json` maps
+those paths to safe, content-addressed Opus object keys; it keeps local file
+names out of public URLs and lets all difficulty charts sharing one source use
+one CDN object.
 
-```json
-{"base_url":"https://audio.example.com/"}
+For the production 64 kbps Opus build on Qiniu Kodo, create a local
+`../taiko_rating_bot/.env.qiniu` file (never commit it) containing
+`QINIU_ACCESS_KEY`, `QINIU_SECRET_KEY`, `QINIU_BUCKET`, `QINIU_REGION`, and
+`QINIU_CDN_BASE_URL`, then run:
+
+```bash
+python scripts/transcode_upload_qiniu_audio.py --transcode-workers 2 --upload-workers 4
 ```
 
-The public origin must retain the `ESE-master/ese/...` relative paths from the
-manifest and return audio responses with a permissive CORS header. Before that
-configuration is supplied, the same pages remain usable as visual-only chart
-players and state that music is awaiting deployment.
+The script is restart-safe: it retains completed local transcodes and treats
+Qiniu's insert-only "already exists" response as success. It writes
+`data/audio_manifest.json`; after a successful upload, configure the public,
+HTTPS, CORS-enabled CDN root in `data/audio_config.json`, for example:
+
+```json
+{
+  "base_url":"https://audio.example.com",
+  "manifest_url":"data/audio_manifest.json"
+}
+```
+
+The public origin must permit anonymous HTTPS reads, byte-range requests, and
+a permissive CORS header for `audio/ogg` responses. Before that configuration
+is supplied, the same pages remain usable as visual-only chart players and
+state that music is awaiting deployment.
 
 ## V4 ability profile
 

@@ -86,6 +86,8 @@ const state = {
   localPreviews: new Map(),
   localPreviewSummary: null,
   localPreviewError: "",
+  audioConfig: { base_url: "" },
+  audioManifest: { objects: {} },
   v2Constants: new Map(),
   exportImageUrl: "",
   chartPreviewPlayer: null,
@@ -484,6 +486,30 @@ function getLocalPreview(chart) {
   return state.localPreviews.get(chart?.id) || null;
 }
 
+function previewAudioUrl(preview) {
+  const base = String(state.audioConfig?.base_url || "").trim();
+  const sourcePath = String(preview?.audio?.path || "").replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!base || !sourcePath) return "";
+  try {
+    const mapped = state.audioManifest?.objects?.[sourcePath];
+    const objectPath = String(mapped?.key || sourcePath).replaceAll("\\", "/").replace(/^\/+/, "");
+    const baseUrl = new URL(`${base.replace(/\/+$/, "")}/`);
+    if (window.location.protocol === "https:" && baseUrl.protocol !== "https:") return "";
+    return new URL(objectPath.split("/").map((part) => encodeURIComponent(part)).join("/"), baseUrl).href;
+  } catch {
+    return "";
+  }
+}
+
+function previewAudioMessage(preview, source) {
+  if (!preview?.audio) return "该谱面未声明可用音源";
+  const base = String(state.audioConfig?.base_url || "").trim();
+  if (!base) return "音源等待部署";
+  if (window.location.protocol === "https:" && base.startsWith("http://")) return "音源 CDN 尚未启用 HTTPS";
+  if (!source) return "音源映射尚未生成";
+  return "音画同步";
+}
+
 function songPreviewHref(chart) {
   const songKey = String(chart?.title_normalized || normalizeTitle(chart?.title || chart?.display_title || ""));
   return songKey ? `fumen.html?song=${encodeURIComponent(songKey)}&v=20260717-per-song-preview-v2` : "";
@@ -554,6 +580,26 @@ async function loadLocalPreviews() {
   }
 }
 
+async function loadAudioAssets() {
+  state.audioConfig = { base_url: "" };
+  state.audioManifest = { objects: {} };
+  try {
+    const response = await fetch(`data/audio_config.json?v=${DATA_VERSION}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const config = await response.json();
+    state.audioConfig = config && typeof config === "object" ? config : { base_url: "" };
+    const manifestPath = String(state.audioConfig.manifest_url || "").trim();
+    if (!manifestPath) return;
+    const manifestResponse = await fetch(`${manifestPath}?v=${DATA_VERSION}`, { cache: "no-store" });
+    if (!manifestResponse.ok) return;
+    const manifest = await manifestResponse.json();
+    state.audioManifest = manifest && typeof manifest === "object" ? manifest : { objects: {} };
+  } catch {
+    state.audioConfig = { base_url: "" };
+    state.audioManifest = { objects: {} };
+  }
+}
+
 async function loadChartData() {
   try {
     const resp = await fetch(`data/chart_data.json?v=${DATA_VERSION}`, { cache: "no-store" });
@@ -565,7 +611,7 @@ async function loadChartData() {
       .filter((ability) => ability && Number.isFinite(Number(ability.main)));
     window.TaikoRatingImage?.setAbilityCatalog?.(embeddedV4);
     state.chartData = Array.isArray(charts) ? charts : [];
-    await loadLocalPreviews();
+    await Promise.all([loadLocalPreviews(), loadAudioAssets()]);
     indexChartData(state.chartData);
     updateChartStatus();
     renderChartBrowser();
@@ -1902,6 +1948,9 @@ function updateChartPreviewControls(player) {
 
 function setChartPreviewTime(player, seconds) {
   player.currentTime = clamp(Number(seconds) || 0, 0, player.timeline.totalTime);
+  if (player.audio && Number.isFinite(player.audio.duration)) {
+    player.audio.currentTime = clamp(player.currentTime - player.audioOffset, 0, player.audio.duration);
+  }
   updateChartPreviewControls(player);
   drawChartPreviewFrame(player);
 }
@@ -1923,7 +1972,9 @@ function startChartPreviewPlayer(player) {
   updateChartPreviewControls(player);
   const step = (timestamp) => {
     if (!player.playing) return;
-    if (player.lastFrameAt != null) {
+    if (player.audio && !player.audio.paused) {
+      player.currentTime = clamp(player.audio.currentTime + player.audioOffset, 0, player.timeline.totalTime);
+    } else if (!player.audio && player.lastFrameAt != null) {
       const delta = ((timestamp - player.lastFrameAt) / 1000) * player.speed;
       player.currentTime = Math.min(player.timeline.totalTime, player.currentTime + delta);
     }
@@ -1931,6 +1982,7 @@ function startChartPreviewPlayer(player) {
     updateChartPreviewControls(player);
     drawChartPreviewFrame(player);
     if (player.currentTime >= player.timeline.totalTime) {
+      player.audio?.pause();
       stopChartPreviewPlayer(player);
       return;
     }
@@ -1959,6 +2011,8 @@ function mountChartPreviewPlayer(chart) {
   const progress = root.querySelector("[data-chart-progress]");
   const speedInput = root.querySelector("[data-chart-speed]");
   const timeLabel = root.querySelector("[data-chart-time]");
+  const audio = root.querySelector("[data-chart-audio]");
+  const audioStatus = root.querySelector("[data-chart-audio-status]");
   const ctx = canvas?.getContext("2d");
   if (!canvas || !ctx || !playButton || !resetButton || !progress || !speedInput || !timeLabel) return;
 
@@ -1971,6 +2025,8 @@ function mountChartPreviewPlayer(chart) {
     progress,
     speedInput,
     timeLabel,
+    audio,
+    audioStatus,
     timeline: buildChartPreviewTimeline(preview, chart),
     currentTime: 0,
     speed: Number(speedInput.value) || 1,
@@ -1983,6 +2039,7 @@ function mountChartPreviewPlayer(chart) {
     logicalHeight: 260,
     width: 960,
     height: 260,
+    audioOffset: Number(preview.audio?.offset) || 0,
     cleanup: null,
   };
 
@@ -2002,11 +2059,27 @@ function mountChartPreviewPlayer(chart) {
     drawChartPreviewFrame(player);
   };
 
-  const toggle = () => {
-    if (player.playing) stopChartPreviewPlayer(player);
-    else startChartPreviewPlayer(player);
+  const toggle = async () => {
+    if (player.playing) {
+      player.audio?.pause();
+      stopChartPreviewPlayer(player);
+      return;
+    }
+    if (!player.audio) {
+      startChartPreviewPlayer(player);
+      return;
+    }
+    player.audio.playbackRate = player.speed;
+    try {
+      await player.audio.play();
+    } catch {
+      if (player.audioStatus) player.audioStatus.textContent = "音乐加载失败，已切换为无音乐谱面预览";
+      player.audio = null;
+      startChartPreviewPlayer(player);
+    }
   };
   const reset = () => {
+    player.audio?.pause();
     stopChartPreviewPlayer(player);
     setChartPreviewTime(player, 0);
   };
@@ -2015,6 +2088,7 @@ function mountChartPreviewPlayer(chart) {
   };
   const setSpeed = () => {
     player.speed = Number(speedInput.value) || 1;
+    if (player.audio) player.audio.playbackRate = player.speed;
   };
 
   playButton.addEventListener("click", toggle);
@@ -2022,12 +2096,23 @@ function mountChartPreviewPlayer(chart) {
   progress.addEventListener("input", scrub);
   speedInput.addEventListener("change", setSpeed);
   window.addEventListener("resize", resize);
+  if (audio) {
+    audio.addEventListener("play", () => startChartPreviewPlayer(player));
+    audio.addEventListener("pause", () => stopChartPreviewPlayer(player));
+    audio.addEventListener("loadedmetadata", () => setChartPreviewTime(player, player.currentTime));
+    audio.addEventListener("error", () => {
+      if (player.audioStatus) player.audioStatus.textContent = "音乐源加载失败，可继续无音乐播放谱面";
+      player.audio = null;
+      stopChartPreviewPlayer(player);
+    });
+  }
   player.cleanup = () => {
     playButton.removeEventListener("click", toggle);
     resetButton.removeEventListener("click", reset);
     progress.removeEventListener("input", scrub);
     speedInput.removeEventListener("change", setSpeed);
     window.removeEventListener("resize", resize);
+    if (audio) audio.pause();
   };
 
   state.chartPreviewPlayer = player;
@@ -2040,6 +2125,8 @@ function renderChartPreviewPlayer(preview, chart) {
   const count = `${preview.shown_measure_count || 0}/${preview.measure_count || 0} 小节`;
   const timing = preview.timing_summary || {};
   const timingText = `HS ${timing.scroll_change_count || 0} / BPM ${timing.bpm_change_count || 0}`;
+  const audioSource = previewAudioUrl(preview);
+  const audioMessage = previewAudioMessage(preview, audioSource);
   return `
     <figure class="preview-figure chart-player-figure">
       <div class="chart-player" data-chart-player>
@@ -2056,6 +2143,8 @@ function renderChartPreviewPlayer(preview, chart) {
           </select>
           <button type="button" data-chart-reset>重置</button>
         </div>
+        <p class="chart-player-audio-status" data-chart-audio-status>${escapeHtml(audioMessage)}</p>
+        ${audioSource ? `<audio class="chart-player-audio" data-chart-audio controls preload="metadata" src="${escapeHtml(audioSource)}"></audio>` : ""}
       </div>
       <figcaption>
         <span>本地 TJA 动态预览</span>

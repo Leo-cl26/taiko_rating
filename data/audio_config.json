@@ -1,1 +1,1 @@
-{"version":1,"base_url":"","description":"Set base_url to the public root that mirrors the ESE-master/ese audio paths. The preview page stays visual-only until a CORS-enabled audio host is configured."}
+{"version":2,"base_url":"https://cdn.327009.xyz","manifest_url":"data/audio_manifest.json","description":"Licensed Taiko preview audio is transcoded to Opus 64 kbps and served from the public HTTPS CDN. The manifest maps local TJA WAVE paths to safe CDN object keys."}
