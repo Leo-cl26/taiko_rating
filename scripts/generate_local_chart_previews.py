@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -425,6 +426,31 @@ def build_preview(chart: dict[str, Any], max_measures: int) -> tuple[dict[str, A
     }, None
 
 
+def compact_song_page_chart(chart: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the fields used by the standalone song preview page."""
+    ese = chart.get("ese") if isinstance(chart.get("ese"), dict) else {}
+    v4 = chart.get("v4") if isinstance(chart.get("v4"), dict) else {}
+    return {
+        "id": str(chart.get("id") or ""),
+        "title": str(chart.get("title") or ""),
+        "display_title": str(chart.get("display_title") or chart.get("title") or ""),
+        "title_normalized": str(chart.get("title_normalized") or ""),
+        "course": str(chart.get("course") or ""),
+        "course_label": str(chart.get("course_label") or chart.get("course") or ""),
+        "level": chart.get("level"),
+        "bpm": chart.get("bpm"),
+        "combo": chart.get("combo"),
+        "const": chart.get("const"),
+        "source": str(chart.get("source") or ""),
+        "duplicate_index": chart.get("duplicate_index"),
+        "ese": {
+            "category": ese.get("category"),
+            "balloon_declared": ese.get("balloon_declared"),
+        },
+        "v4": {key: v4.get(key) for key in ("stamina", "reading", "burst", "rhythm", "complex")},
+    }
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -432,12 +458,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate compact local TJA chart previews for the frontend.")
     parser.add_argument("--chart-data", type=Path, default=PROJECT_ROOT / "data" / "chart_data.json")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data" / "local_chart_previews.json")
+    parser.add_argument("--song-page-dir", type=Path, default=PROJECT_ROOT / "data" / "song_previews")
+    parser.add_argument("--song-page-index", type=Path, default=PROJECT_ROOT / "data" / "song_preview_index.json")
     parser.add_argument("--max-measures", type=int, default=0, help="0 keeps the full chart.")
     args = parser.parse_args()
 
     charts = read_json(args.chart_data, [])
     previews: dict[str, Any] = {}
     errors: dict[str, str] = {}
+    song_pages: dict[str, list[dict[str, Any]]] = {}
 
     for chart in charts:
         record_id = str(chart.get("id") or "")
@@ -446,6 +475,9 @@ def main() -> None:
         preview, error = build_preview(chart, max(0, args.max_measures))
         if preview:
             previews[record_id] = preview
+            song_key = str(chart.get("title_normalized") or "").strip()
+            if song_key:
+                song_pages.setdefault(song_key, []).append({"chart": compact_song_page_chart(chart), "preview": preview})
         elif error:
             errors[record_id] = error
 
@@ -458,13 +490,36 @@ def main() -> None:
         "sample_errors": dict(list(errors.items())[:20]),
     }
     payload = {
-        "version": "local_tja_preview_v2",
+        "version": "local_tja_preview_v3",
         "summary": summary,
         "previews": previews,
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    args.song_page_dir.mkdir(parents=True, exist_ok=True)
+    song_index: dict[str, dict[str, Any]] = {}
+    for song_key, entries in song_pages.items():
+        entries.sort(key=lambda item: (str(item["chart"].get("course") or ""), str(item["chart"].get("id") or "")))
+        digest = hashlib.sha1(song_key.encode("utf-8")).hexdigest()[:16]
+        filename = f"{digest}.json"
+        page_payload = {
+            "version": "song_preview_page_v1",
+            "song_key": song_key,
+            "title": next((item["chart"]["display_title"] for item in entries if item["chart"].get("display_title")), ""),
+            "charts": entries,
+        }
+        (args.song_page_dir / filename).write_text(
+            json.dumps(page_payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        song_index[song_key] = {"file": filename, "title": page_payload["title"], "chart_count": len(entries)}
+    args.song_page_index.parent.mkdir(parents=True, exist_ok=True)
+    args.song_page_index.write_text(
+        json.dumps({"version": "song_preview_index_v1", "songs": song_index}, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    summary["song_page_count"] = len(song_index)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

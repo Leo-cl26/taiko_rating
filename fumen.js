@@ -3,7 +3,6 @@ const COURSE_ORDER = { Easy: 1, Normal: 2, Hard: 3, Oni: 4, Edit: 5 };
 const COURSE_COLORS = { Easy: "#e53935", Normal: "#8cac53", Hard: "#414a2c", Oni: "#db1685", Edit: "#7232db" };
 
 const fumenState = {
-  charts: [],
   previews: new Map(),
   audioConfig: { base_url: "" },
   songKey: "",
@@ -370,16 +369,18 @@ async function initializeFumenPage() {
   const songKey = new URLSearchParams(window.location.search).get("song")?.trim() || "";
   if (!songKey) { showError("缺少歌曲参数。请从 Bot 的 /查歌 结果或网页谱面详情进入。\n"); return; }
   try {
-    const [charts, previews, config] = await Promise.all([
-      fetchJson("data/chart_data.json", []),
-      fetchJson("data/local_chart_previews.json", { previews: {} }),
+    const [index, config] = await Promise.all([
+      fetchJson("data/song_preview_index.json", { songs: {} }),
       fetchJson("data/audio_config.json", { base_url: "" }).catch(() => ({ base_url: "" })),
     ]);
-    fumenState.charts = Array.isArray(charts) ? charts : [];
-    fumenState.previews = new Map(Object.entries(previews?.previews || {}));
+    const entry = index?.songs?.[songKey];
+    if (!entry?.file) { showError(`找不到“${songKey}”对应的可预览歌曲。`); return; }
+    const page = await fetchJson(`data/song_previews/${encodeURIComponent(entry.file)}`, { charts: [] });
+    const pageCharts = Array.isArray(page?.charts) ? page.charts : [];
+    fumenState.previews = new Map(pageCharts.map((item) => [item?.chart?.id, item?.preview]).filter(([id, preview]) => id && preview));
     fumenState.audioConfig = config && typeof config === "object" ? config : { base_url: "" };
     fumenState.songKey = songKey;
-    fumenState.songCharts = findSongCharts(fumenState.charts, songKey).filter((chart) => fumenState.previews.has(chart.id));
+    fumenState.songCharts = findSongCharts(pageCharts.map((item) => item?.chart).filter(Boolean), songKey).filter((chart) => fumenState.previews.has(chart.id));
     if (!fumenState.songCharts.length) { showError(`找不到“${songKey}”对应的可预览歌曲。`); return; }
     fumenState.selectedChart = fumenState.songCharts.find((chart) => chart.course === "Oni") || fumenState.songCharts[0];
     document.title = `${chartTitle(fumenState.selectedChart)} · 谱面预览 · Taiko Rating`;

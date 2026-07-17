@@ -31,7 +31,9 @@ settings, enable Pages with source `Deploy from a branch`, branch `main`, folder
 
 ## Shareable song preview pages and music
 
-Every locally parsed song has a shareable page in this form:
+Every locally parsed song has a shareable page in this form. The page first
+downloads a compact song index and then only that song's preview package; it
+does not wait for the full chart library on a phone:
 
 ```text
 https://taiko.mmt.qd.je/fumen.html?song=<title_normalized>
