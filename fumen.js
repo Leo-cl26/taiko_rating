@@ -1,4 +1,4 @@
-const FUMEN_DATA_VERSION = "20260717-fumen-pages-v1";
+const FUMEN_DATA_VERSION = "20260717-per-song-preview-v2";
 const COURSE_ORDER = { Easy: 1, Normal: 2, Hard: 3, Oni: 4, Edit: 5 };
 const COURSE_COLORS = { Easy: "#e53935", Normal: "#8cac53", Hard: "#414a2c", Oni: "#db1685", Edit: "#7232db" };
 
